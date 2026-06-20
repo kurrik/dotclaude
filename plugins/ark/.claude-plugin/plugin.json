@@ -2,7 +2,7 @@
   "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
   "name": "ark",
   "description": "Git & GitHub PR workflow commands.",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "author": {
     "name": "Arne Roomann-Kurrik",
     "email": "kurrik@gmail.com"

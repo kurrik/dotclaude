@@ -113,8 +113,8 @@ Because `/ark:review` uses `gh api` directly (no `gh` extensions), that's the wh
 
 ### Adding a command vs. a skill
 
-- **Slash command** — a flat `.md` file in `commands/` with a `description:` frontmatter field. User-invoked via `/<plugin>:<file>`.
-- **Skill** — a `skills/<name>/SKILL.md` directory, for model-invocable capabilities that may bundle scripts/references. Auto-triggered by its `description`.
+- **Slash command** — a flat `.md` file in `commands/`, invoked as `/<plugin>:<file>`. Model-invocable by default (Claude may trigger it from its `description`) as well as user-invocable; add `disable-model-invocation: true` to the frontmatter to make it manual-only.
+- **Skill** — a `skills/<name>/SKILL.md` directory, for capabilities that may bundle scripts/references, auto-triggered by its `description`.
 
 ## Versioning
 
