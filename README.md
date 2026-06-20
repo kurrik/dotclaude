@@ -22,7 +22,7 @@ Or share it across **all** your instances declaratively (recommended) — see [S
 - **`/ark:pr`** — stage, commit, push the current branch, and open a GitHub PR with an auto-generated description that follows the repo's PR template.
 - **`/ark:review`** — fetch PR review comments, address them, push fixes, and reply to each thread through a single pending review.
 
-> **Dependency:** `/ark:review` uses the [`gh-pr-review`](https://github.com/your/gh-pr-review) GitHub CLI extension. Install the `gh` CLI and that extension for it to work.
+> **Requirements:** Both commands use the [GitHub CLI (`gh`)](https://cli.github.com) signed in to your account. No `gh` extensions needed — `/ark:review` talks to GitHub's GraphQL API directly via `gh api`.
 
 ## How naming / prefixes work
 
@@ -79,6 +79,23 @@ To make a plugin load automatically on every machine without running `/plugin in
 - `enabledPlugins` enables specific plugins by default (`"<plugin>@<marketplace>": true`).
 
 Replicate those two blocks in any machine's `~/.claude/settings.json` (or a project's `.claude/settings.json` to scope it to one repo) and the plugin is there on next launch.
+
+## Using `ark` in a cloud environment
+
+Claude's cloud environments — [Claude Code on the web](https://code.claude.com/docs/en/claude-code-on-the-web) and scheduled [Routines](https://code.claude.com/docs/en/routines) — preinstall `git` but **not** the `gh` CLI, and `gh`'s API calls need an explicit token. To use the `ark` commands there:
+
+1. In the environment's **Setup script**, install `gh` (setup-script installs are snapshotted and reused across sessions, so this runs once — not every session):
+   ```bash
+   #!/bin/bash
+   apt-get update && apt-get install -y gh
+   ```
+2. Add a least-privilege token as an **environment variable** so `gh api` is authenticated without `gh auth login`:
+   ```
+   GH_TOKEN=<your token>
+   ```
+3. No network change needed — `github.com` is in the default "Trusted" egress allowlist.
+
+Because `/ark:review` uses `gh api` directly (no `gh` extensions), that's the whole list — there's nothing else to provision.
 
 ## Adding a new plugin
 
