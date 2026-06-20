@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-plugin-marketplace.json",
+  "name": "dotclaude",
+  "description": "Kurrik's personal Claude Code plugins — skills and slash commands shared across all instances.",
+  "owner": {
+    "name": "Arne Roomann-Kurrik",
+    "email": "kurrik@gmail.com"
+  },
+  "plugins": [
+    {
+      "name": "ark",
+      "description": "Git & GitHub PR workflow commands: open a PR from the current branch (/ark:pr) and address PR review comments (/ark:review).",
+      "source": "./plugins/ark"
+    }
+  ]
+}

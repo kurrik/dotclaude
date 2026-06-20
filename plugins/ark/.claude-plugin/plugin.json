@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
+  "name": "ark",
+  "description": "Git & GitHub PR workflow commands.",
+  "version": "0.1.0",
+  "author": {
+    "name": "Arne Roomann-Kurrik",
+    "email": "kurrik@gmail.com"
+  },
+  "homepage": "https://github.com/kurrik/dotclaude",
+  "repository": "https://github.com/kurrik/dotclaude",
+  "license": "MIT",
+  "keywords": ["git", "github", "pr", "workflow"]
+}
