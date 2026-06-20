@@ -1,5 +1,7 @@
 # dotclaude
 
+[![Validate marketplace](https://github.com/kurrik/dotclaude/actions/workflows/validate.yml/badge.svg)](https://github.com/kurrik/dotclaude/actions/workflows/validate.yml)
+
 A personal [Claude Code plugin marketplace](https://docs.claude.com/en/docs/claude-code/plugins) — a single Git repo holding skills and slash commands, shared across every Claude Code instance I use.
 
 ## Quick start
@@ -110,6 +112,8 @@ Because `/ark:review` uses `gh api` directly (no `gh` extensions), that's the wh
    claude plugin validate .
    ```
 5. On each instance, `/plugin marketplace update dotclaude` (or restart) picks up the change.
+
+> CI ([`.github/workflows/validate.yml`](.github/workflows/validate.yml)) re-runs `claude plugin validate` on the marketplace and every plugin for each push and PR, so a broken manifest can't land on `main`.
 
 ### Adding a command vs. a skill
 
