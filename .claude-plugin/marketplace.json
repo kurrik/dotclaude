@@ -1,16 +1,22 @@
 {
-  "$schema": "https://json.schemastore.org/claude-code-plugin-marketplace.json",
   "name": "dotclaude",
-  "description": "Kurrik's personal Claude Code plugins — skills and slash commands shared across all instances.",
   "owner": {
     "name": "Arne Roomann-Kurrik",
     "email": "kurrik@gmail.com"
+  },
+  "metadata": {
+    "description": "Kurrik's personal Claude Code plugins, skills, and slash commands shared across all instances."
   },
   "plugins": [
     {
       "name": "ark",
       "description": "Git & GitHub PR workflow commands: open a PR from the current branch (/ark:pr) and address PR review comments (/ark:review).",
       "source": "./plugins/ark"
+    },
+    {
+      "name": "xquik-x-data",
+      "description": "Xquik API and remote MCP guidance for X data automation, monitoring, search, and webhooks.",
+      "source": "./plugins/xquik-x-data"
     }
   ]
 }
