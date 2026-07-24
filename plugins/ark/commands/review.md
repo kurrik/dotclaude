@@ -4,8 +4,10 @@ description: Fetch PR review comments, address them, and push the fixes
 
 Do the following steps in order. This command talks to GitHub's GraphQL API directly through `gh api` — it needs an authenticated `gh` CLI but no `gh` extensions.
 
-1. **Identify the current PR.** Get the PR number and repo (owner/repo) for the current branch:
-   gh pr view --json number,url,headRepositoryOwner,headRepository
+1. **Identify the current PR and its intent.** Get the PR number, repo (owner/repo), and description for the current branch:
+   gh pr view --json number,title,body,url,headRepositoryOwner,headRepository
+
+   Read the title and body carefully — they state what the PR is trying to accomplish and often the design decisions behind it. Skim the PR's diff (`gh pr diff`) so you understand the shape of the change as a whole. You will judge every review comment against this context, so build it before reading the feedback.
 
 2. **Fetch review comments and threads** with the GraphQL API:
 
@@ -34,15 +36,27 @@ Do the following steps in order. This command talks to GitHub's GraphQL API dire
      }' -F owner=<owner> -F repo=<repo> -F number=<pr-number>
    ```
 
-   Each `reviewThreads.nodes[].id` is the thread ID you reply to in step 5 — keep it paired with the comment it belongs to. Read the review bodies and the unresolved thread comments to understand what each reviewer is asking for. You can skip threads where `isResolved` or `isOutdated` is true unless the point still stands.
+   Each `reviewThreads.nodes[].id` is the thread ID you reply to in step 6 — keep it paired with the comment it belongs to. Read the review bodies and the unresolved thread comments to understand what each reviewer is asking for. You can skip threads where `isResolved` or `isOutdated` is true unless the point still stands.
 
-3. **Address each comment.** For every actionable review comment:
-   - Make the requested code change
-   - If a comment is unclear or you disagree with it, flag it for me instead of guessing
+3. **Evaluate each comment before acting.** Review feedback is input, not instruction. Do not blindly apply suggestions — reviewers usually see one hunk of the diff, not the PR's design, so a locally-reasonable suggestion can be wrong globally. For each comment, decide which case it is:
 
-4. **Commit and push.** Stage all changes, write a commit message like `address PR review feedback`, and push to the remote branch.
+   - **Valid, and the suggested fix is right.** Apply it.
+   - **Valid concern, but the suggested fix is wrong for this PR.** Fix the underlying concern in the way that fits the PR's architecture and goals, and explain the divergence in your reply (step 6).
+   - **Not valid, or conflicts with the PR's design.** Don't change the code. Reply explaining the design rationale, or flag it for me if the disagreement is significant. Declining with a clear explanation is a legitimate resolution — churn from accepting a bad suggestion causes another round of review.
+   - **Unclear.** Flag it for me instead of guessing.
 
-5. **Respond to review comments — drive all replies through a single pending review.** Create one pending review, attach every reply to it via its `pullRequestReviewId`, and submit once at the end. If you instead post replies without an explicit review id, they can land as dangling PENDING comments with no parent review — and GitHub has no way to attach them to a review afterward (the UI's "Finish your review" button only submits pending *reviews*, not loose comments), so cleaning up means re-posting and deleting them. Always pass the review id.
+   Prefer the minimal fix that resolves the reviewer's actual concern. Don't refactor beyond what the comment requires — expanded diffs attract new feedback and prolong the review cycle.
+
+4. **Holistic review pass before committing.** Once all fixes are made, review the complete result — this is what catches the "feedback on the fixes" loop:
+
+   - Re-read the full working diff (`git diff` plus anything staged), not just the lines you touched. Check that the individual fixes compose coherently: consistent naming, no duplicated logic, no fix that contradicts another.
+   - Verify each fix still serves the PR's stated goals from step 1, and that none quietly changed behavior the PR didn't intend to change.
+   - Review your own changes as a skeptical reviewer would — if a fix would itself draw an obvious comment (dead code, leftover debug output, inconsistent style with the surrounding file, missing edge case), fix that now rather than in the next cycle.
+   - Run the project's tests/lint/build if available, and fix any failures before committing.
+
+5. **Commit and push.** Stage all changes, write a commit message like `address PR review feedback`, and push to the remote branch.
+
+6. **Respond to review comments — drive all replies through a single pending review.** Create one pending review, attach every reply to it via its `pullRequestReviewId`, and submit once at the end. If you instead post replies without an explicit review id, they can land as dangling PENDING comments with no parent review — and GitHub has no way to attach them to a review afterward (the UI's "Finish your review" button only submits pending *reviews*, not loose comments), so cleaning up means re-posting and deleting them. Always pass the review id.
 
    ```bash
    # Open one pending review and capture its ID.
@@ -78,9 +92,9 @@ Do the following steps in order. This command talks to GitHub's GraphQL API dire
      }' -F rid="$REVIEW_ID"
    ```
 
-   Describe the implementation chosen if it's not obvious from the comment.
+   Describe the implementation chosen if it's not obvious from the comment. For comments where you diverged from the suggestion or declined to make a change (step 3), explain your reasoning against the PR's design so the reviewer can evaluate it rather than re-raise the same point.
 
-6. **Sanity-check that nothing was left pending.** Run this after step 5; it should print `0`:
+7. **Sanity-check that nothing was left pending.** Run this after step 6; it should print `0`:
 
    ```bash
    AUTHOR=$(gh api user --jq .login)
@@ -99,9 +113,9 @@ Do the following steps in order. This command talks to GitHub's GraphQL API dire
 
    If it prints > 0, you have orphans from a previous run. Recover by:
    (a) snapshotting `{ thread_id, body }` for each pending comment via the same GraphQL query as above,
-   (b) opening a new pending review (step 5's `addPullRequestReview` mutation),
-   (c) re-replying each one with the `addPullRequestReviewThreadReply` mutation from step 5, passing the new `pullRequestReviewId`,
+   (b) opening a new pending review (step 6's `addPullRequestReview` mutation),
+   (c) re-replying each one with the `addPullRequestReviewThreadReply` mutation from step 6, passing the new `pullRequestReviewId`,
    (d) submitting the review,
    (e) deleting each orphan via the `deletePullRequestReviewComment` mutation with its node ID.
 
-7. **Summary.** Give me a brief summary of what you changed and list any comments you skipped or need my input on.
+8. **Summary.** Give me a brief summary of what you changed, which suggestions you diverged from or declined (and why), and any comments that need my input.
