@@ -19,12 +19,40 @@ Or share it across **all** your instances declaratively (recommended) — see [S
 
 | Plugin | Provides | Invoke as |
 | --- | --- | --- |
-| **`ark`** | Git & GitHub PR workflow commands | `/ark:pr`, `/ark:review` |
+| **`ark`** | Git & GitHub workflow commands | `/ark:pr`, `/ark:review`, `/ark:reset-worktree` |
 
 - **`/ark:pr`** — stage, commit, push the current branch, and open a GitHub PR with an auto-generated description that follows the repo's PR template.
 - **`/ark:review`** — fetch PR review comments, address them, push fixes, and reply to each thread through a single pending review.
+- **`/ark:reset-worktree`** — reset the current git worktree's branch back to the base branch. No-ops outside a worktree; asks before discarding uncommitted work.
 
-> **Requirements:** Both commands use the [GitHub CLI (`gh`)](https://cli.github.com) signed in to your account. No `gh` extensions needed — `/ark:review` talks to GitHub's GraphQL API directly via `gh api`.
+> **Requirements:** `/ark:pr` and `/ark:review` use the [GitHub CLI (`gh`)](https://cli.github.com) signed in to your account. No `gh` extensions needed — `/ark:review` talks to GitHub's GraphQL API directly via `gh api`. `/ark:reset-worktree` needs only `git`.
+
+### `/ark:reset-worktree`
+
+For a throwaway-worktree workflow: each worktree directory owns the branch `worktree/<directory-name>`, and resetting means "throw away everything and start again from `main`".
+
+```
+~/workspace/a17k        # primary clone, sits on main
+~/workspace/a17k-01     # worktree on branch worktree/a17k-01
+~/workspace/a17k-02     # worktree on branch worktree/a17k-02
+```
+
+Run from `~/workspace/a17k-01`, it fetches `main` from `origin`, checks out `worktree/a17k-01` (creating it if needed), hard-resets it to `main`, and unsets its upstream so a later bare `git push` can't update a remote copy. Run from the primary clone, it does nothing.
+
+The logic lives in [`plugins/ark/scripts/reset-worktree.sh`](plugins/ark/scripts/reset-worktree.sh) and is runnable on its own:
+
+```
+bash reset-worktree.sh [--force] [--base <branch>] [--prefix <ns>] [--dry-run]
+```
+
+The command wrapper exists so the script is distributed with the plugin and so Claude can handle the one case the script won't decide alone: it exits `3` on a dirty worktree, and the command then asks you before re-running with `--force`.
+
+- `--base` sets the base branch (default `main`).
+- `--prefix` changes the namespace (default `worktree`); `--prefix ''` gives a bare `a17k-01`. A prefix **cannot** be an existing branch name — git stores refs as filesystem paths, so with a `main` branch present the ref `main/a17k-01` is impossible (`cannot lock ref 'refs/heads/main/a17k-01': 'refs/heads/main' exists`). That's why the namespace is `worktree/` rather than `main/`; the script rejects a colliding prefix up front.
+- If `main` is checked out in another worktree, `git fetch origin main:main` can't fast-forward it; the script falls back to fetching and resetting to `origin/main`.
+- `reset --hard` leaves untracked files alone. The script lists any that survive rather than deleting them.
+
+[`reset-worktree.test.sh`](plugins/ark/scripts/reset-worktree.test.sh) covers these paths against a throwaway repo and runs in CI.
 
 ## How naming / prefixes work
 
@@ -51,9 +79,13 @@ dotclaude/
 │   └── ark/
 │       ├── .claude-plugin/
 │       │   └── plugin.json      # Plugin manifest (name, version, metadata)
-│       └── commands/            # Slash commands  (flat .md files)
-│           ├── pr.md
-│           └── review.md
+│       ├── commands/            # Slash commands  (flat .md files)
+│       │   ├── pr.md
+│       │   ├── reset-worktree.md
+│       │   └── review.md
+│       └── scripts/             # Helper scripts, reached via ${CLAUDE_PLUGIN_ROOT}
+│           ├── reset-worktree.sh
+│           └── reset-worktree.test.sh
 ├── README.md
 └── LICENSE
 ```
@@ -113,7 +145,7 @@ Because `/ark:review` uses `gh api` directly (no `gh` extensions), that's the wh
    ```
 5. On each instance, `/plugin marketplace update dotclaude` (or restart) picks up the change.
 
-> CI ([`.github/workflows/validate.yml`](.github/workflows/validate.yml)) re-runs `claude plugin validate` on the marketplace and every plugin for each push and PR, so a broken manifest can't land on `main`.
+> CI ([`.github/workflows/validate.yml`](.github/workflows/validate.yml)) re-runs `claude plugin validate` on the marketplace and every plugin for each push and PR, so a broken manifest can't land on `main`. It also runs every `plugins/*/scripts/*.test.sh`, so name a script's test suite that way and CI picks it up.
 
 ### Adding a command vs. a skill
 

@@ -45,3 +45,15 @@ jobs:
             echo "No plugins found under plugins/" >&2
             exit 1
           fi
+
+      - name: Run plugin script tests
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          git config --global user.email ci@example.com
+          git config --global user.name CI
+          for test in plugins/*/scripts/*.test.sh; do
+            echo "::group::${test}"
+            bash "${test}"
+            echo "::endgroup::"
+          done
