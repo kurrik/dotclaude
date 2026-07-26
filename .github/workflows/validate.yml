@@ -50,8 +50,8 @@ jobs:
         run: |
           set -euo pipefail
           shopt -s nullglob
-          git config --global user.email ci@example.com
-          git config --global user.name CI
+          # No git identity setup needed: the suites suppress ambient git config
+          # and pass identity via GIT_AUTHOR_* / GIT_COMMITTER_* env vars.
           for test in plugins/*/scripts/*.test.sh; do
             echo "::group::${test}"
             bash "${test}"
