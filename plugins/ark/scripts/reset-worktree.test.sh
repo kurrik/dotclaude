@@ -109,10 +109,41 @@ out=$(bash "$SCRIPT" --base nope 2>&1); ec=$?; echo "$out"; echo "exit=$ec"
 ck "exit code" "$ec" "1"
 has "clear message" "no 'nope' branch" "$out"
 
-hdr "TEST 12: bad flag / primary worktree no-op"
+hdr "TEST 12: bad flag"
 bash "$SCRIPT" --bogus; ck "bad flag exit" "$?" "1"
-cdd "$ROOT/a17k"; out=$(bash "$SCRIPT"); ck "primary worktree exit" "$?" "0"
-echo "$out"; has "no-op message" 'nothing to do' "$out"
+
+hdr "TEST 13: primary tree on a feature branch -> clean base checkout"
+# TEST 6 left the seed repo on `develop`; commits must land on main to move it.
+cdd "$ROOT/seed"; git checkout -q main; echo v4 > file.txt && git commit -qam "v4" && git push -q origin main
+V4=$(git rev-parse HEAD)
+cdd "$ROOT/a17k"; git checkout -qb feature-x && echo wip > file.txt && git commit -qam wip
+out=$(bash "$SCRIPT" 2>&1); ec=$?
+echo "$out"; echo "exit=$ec"
+ck "exit code" "$ec" "0"
+ck "on base branch" "$(git rev-parse --abbrev-ref HEAD)" "main"
+ck "at origin/main tip" "$(git rev-parse HEAD)" "$V4"
+ck "file content" "$(cat file.txt)" "v4"
+has "identifies primary tree" 'primary working tree' "$out"
+ck "upstream kept" "$(git rev-parse --abbrev-ref 'main@{upstream}' 2>/dev/null)" "origin/main"
+ck "feature branch left alone" "$(git rev-parse --verify --quiet feature-x >/dev/null && echo yes)" "yes"
+
+hdr "TEST 14: primary tree already on base, dirty -> exit 3 unless forced"
+echo junk > file.txt
+bash "$SCRIPT" >/dev/null 2>&1; ck "dirty exit code" "$?" "3"
+ck "dirty file untouched" "$(cat file.txt)" "junk"
+cdd "$ROOT/seed"; git checkout -q main; echo v5 > file.txt && git commit -qam "v5" && git push -q origin main
+V5=$(git rev-parse HEAD); cdd "$ROOT/a17k"
+bash "$SCRIPT" --force; ck "forced exit code" "$?" "0"
+ck "reset to v5" "$(git rev-parse HEAD)" "$V5"
+ck "still on main" "$(git rev-parse --abbrev-ref HEAD)" "main"
+ck "upstream still set" "$(git rev-parse --abbrev-ref 'main@{upstream}' 2>/dev/null)" "origin/main"
+
+hdr "TEST 15: primary tree --dry-run changes nothing"
+git checkout -qb feature-y && git commit -qam "y" --allow-empty
+B=$(git rev-parse HEAD)
+bash "$SCRIPT" --dry-run; ck "dry-run exit" "$?" "0"
+ck "HEAD unchanged" "$(git rev-parse HEAD)" "$B"
+ck "branch unchanged" "$(git rev-parse --abbrev-ref HEAD)" "feature-y"
 
 printf '\n===== %d passed, %d failed =====\n' "$PASS" "$FAIL"
 rm -rf "$ROOT"
