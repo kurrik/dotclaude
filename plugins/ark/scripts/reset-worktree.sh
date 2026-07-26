@@ -1,18 +1,21 @@
 #!/usr/bin/env bash
 #
-# Reset a git worktree's own branch back to the repo's base branch.
+# Get back to a clean checkout on top of the repo's base branch.
 #
-# Convention: a worktree owns the branch `worktree/<its-directory-name>`, so a
-# worktree at ~/workspace/a17k-01 owns the branch `worktree/a17k-01`. Override the
-# namespace with --prefix, or pass --prefix '' for a bare `a17k-01`. The prefix
-# cannot be an existing branch name -- git stores refs as paths, so `refs/heads/main`
-# being a file makes the branch `main/a17k-01` impossible to create.
+# In a linked worktree, that means the worktree's own branch. Convention: a
+# worktree owns the branch `worktree/<its-directory-name>`, so a worktree at
+# ~/workspace/a17k-01 owns the branch `worktree/a17k-01`. Override the namespace
+# with --prefix, or pass --prefix '' for a bare `a17k-01`. The prefix cannot be an
+# existing branch name -- git stores refs as paths, so `refs/heads/main` being a
+# file makes the branch `main/a17k-01` impossible to create. Steps: fetch the base
+# branch, check out the worktree's branch, hard-reset it to the base branch, and
+# unset its upstream so it isn't accidentally pushed again.
 #
-# Steps: fetch the base branch, check out the worktree's branch, hard-reset it to
-# the base branch, and unset its upstream so it isn't accidentally pushed again.
+# In the primary working tree, that means the base branch itself: fetch it, check
+# it out, and hard-reset it to the fetched tip. The upstream is left alone (main
+# is meant to track origin/main) and --prefix is ignored.
 #
-# No-ops (exit 0) when not run from a linked worktree.
-# Exits 3 when the worktree is dirty and --force was not passed.
+# Exits 3 when the working tree is dirty and --force was not passed.
 #
 # Usage: reset-worktree.sh [--force] [--base <branch>] [--prefix <ns>] [--dry-run]
 
@@ -49,7 +52,7 @@ while [[ $# -gt 0 ]]; do
       [[ $# -ge 2 ]] || die "--prefix requires a value"
       PREFIX="$2"; shift 2 ;;
     --prefix=*) PREFIX="${1#--prefix=}"; shift ;;
-    -h|--help) sed -n '2,22p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,20p' "$0"; exit 0 ;;
     *) die "unknown argument: $1" ;;
   esac
 done
@@ -63,27 +66,36 @@ git rev-parse --is-inside-work-tree >/dev/null 2>&1 || die "not inside a git rep
 git_dir=$(cd "$(git rev-parse --git-dir)" && pwd -P)
 common_dir=$(cd "$(git rev-parse --git-common-dir)" && pwd -P)
 if [[ "$git_dir" == "$common_dir" ]]; then
-  echo "Not a linked git worktree (this is the primary working tree) — nothing to do."
-  exit 0
+  MODE=primary
+else
+  MODE=worktree
 fi
 
-worktree_root=$(git rev-parse --show-toplevel)
-worktree_name=$(basename "$worktree_root")
-branch="${PREFIX:+$PREFIX/}$worktree_name"
+tree_root=$(git rev-parse --show-toplevel)
 
-# Git refs live on a filesystem-like path, so `foo` and `foo/bar` can't coexist.
-if [[ -n "$PREFIX" ]] && git show-ref --verify --quiet "refs/heads/$PREFIX"; then
-  die "cannot use prefix '$PREFIX': a branch named '$PREFIX' already exists, so
+if [[ $MODE == worktree ]]; then
+  branch="${PREFIX:+$PREFIX/}$(basename "$tree_root")"
+
+  # Git refs live on a filesystem-like path, so `foo` and `foo/bar` can't coexist.
+  if [[ -n "$PREFIX" ]] && git show-ref --verify --quiet "refs/heads/$PREFIX"; then
+    die "cannot use prefix '$PREFIX': a branch named '$PREFIX' already exists, so
        the branch '$branch' can never be created. Pick a prefix that isn't an
        existing branch name (e.g. --prefix wt), or pass --prefix '' for a
        bare branch name with no namespace."
+  fi
+
+  printf 'Worktree : %s\n' "$tree_root"
+else
+  # The primary tree has no branch of its own to throw away; a clean checkout of
+  # the base branch is the equivalent end state. --prefix is meaningless here.
+  branch="$BASE"
+  printf 'Repo     : %s (primary working tree)\n' "$tree_root"
 fi
 
-printf 'Worktree : %s\n' "$worktree_root"
 printf 'Branch   : %s\n' "$branch"
 printf 'Base     : %s\n\n' "$BASE"
 
-if [[ "$branch" == "$BASE" ]]; then
+if [[ $MODE == worktree && "$branch" == "$BASE" ]]; then
   die "worktree branch and base branch are both '$BASE' — refusing to reset the base branch onto itself"
 fi
 
@@ -91,10 +103,10 @@ fi
 dirty=$(git status --porcelain)
 if [[ -n "$dirty" ]]; then
   if [[ $FORCE -eq 1 ]]; then
-    echo "Worktree is dirty; --force given, discarding tracked changes:"
+    echo "Working tree is dirty; --force given, discarding tracked changes:"
     printf '%s\n\n' "$dirty"
   else
-    echo "Worktree has uncommitted changes:" >&2
+    echo "Working tree has uncommitted changes:" >&2
     printf '%s\n' "$dirty" >&2
     echo >&2
     echo "Refusing to reset. Re-run with --force to discard these changes." >&2
@@ -103,8 +115,9 @@ if [[ -n "$dirty" ]]; then
 fi
 
 # Update the local base branch. `git fetch origin <base>:<base>` fails when the
-# base branch is checked out in another worktree (commonly the primary one), so
-# fall back to fetching the remote-tracking ref and resetting to that.
+# base branch is checked out anywhere — another worktree, or this tree itself when
+# run from the primary clone already sitting on the base branch — so fall back to
+# fetching the remote-tracking ref and resetting to that.
 echo "Fetching $BASE from origin..."
 fetch_err=""
 if [[ $DRY_RUN -eq 1 ]]; then
@@ -116,7 +129,7 @@ elif fetch_err=$(git fetch origin "$BASE:$BASE" 2>&1); then
 elif ! git ls-remote --exit-code --heads origin "$BASE" >/dev/null 2>&1; then
   die "origin has no '$BASE' branch"
 else
-  printf '  local %s could not be fast-forwarded (checked out in another worktree?)\n' "$BASE"
+  printf '  local %s could not be fast-forwarded (already checked out somewhere?)\n' "$BASE"
   printf '  falling back to origin/%s\n' "$BASE"
   run git fetch origin "$BASE"
   target="origin/$BASE"
@@ -135,16 +148,21 @@ else
   run git checkout -B "$branch" "$target"
 fi
 
-# These branches are local scratch space. If one was pushed at some point, drop
+# Worktree branches are local scratch space. If one was pushed at some point, drop
 # the upstream link so a later bare `git push` doesn't update the remote copy.
 # The remote branch itself is left alone — delete it manually if you want it gone.
-upstream=$(git rev-parse --abbrev-ref --symbolic-full-name "$branch@{upstream}" 2>/dev/null || true)
+# The base branch is exempt: tracking origin/<base> is the point of it.
 echo
-if [[ -n "$upstream" ]]; then
-  printf 'Unsetting upstream (%s)...\n' "$upstream"
-  run git branch --unset-upstream "$branch"
+if [[ $MODE == primary ]]; then
+  echo "Leaving upstream alone — $branch is the base branch."
 else
-  echo "No upstream configured for $branch — nothing to unset."
+  upstream=$(git rev-parse --abbrev-ref --symbolic-full-name "$branch@{upstream}" 2>/dev/null || true)
+  if [[ -n "$upstream" ]]; then
+    printf 'Unsetting upstream (%s)...\n' "$upstream"
+    run git branch --unset-upstream "$branch"
+  else
+    echo "No upstream configured for $branch — nothing to unset."
+  fi
 fi
 
 echo

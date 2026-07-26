@@ -23,7 +23,7 @@ Or share it across **all** your instances declaratively (recommended) — see [S
 
 - **`/ark:pr`** — stage, commit, push the current branch, and open a GitHub PR with an auto-generated description that follows the repo's PR template.
 - **`/ark:review`** — fetch PR review comments, address them, push fixes, and reply to each thread through a single pending review.
-- **`/ark:reset-worktree`** — reset the current git worktree's branch back to the base branch. No-ops outside a worktree; asks before discarding uncommitted work.
+- **`/ark:reset-worktree`** — reset the current git worktree's branch back to the base branch, or the primary clone back to a clean `main` checkout. Asks before discarding uncommitted work.
 
 > **Requirements:** `/ark:pr` and `/ark:review` use the [GitHub CLI (`gh`)](https://cli.github.com) signed in to your account. No `gh` extensions needed — `/ark:review` talks to GitHub's GraphQL API directly via `gh api`. `/ark:reset-worktree` needs only `git`.
 
@@ -37,7 +37,9 @@ For a throwaway-worktree workflow: each worktree directory owns the branch `work
 ~/workspace/a17k-02     # worktree on branch worktree/a17k-02
 ```
 
-Run from `~/workspace/a17k-01`, it fetches `main` from `origin`, checks out `worktree/a17k-01` (creating it if needed), hard-resets it to `main`, and unsets its upstream so a later bare `git push` can't update a remote copy. Run from the primary clone, it does nothing.
+Run from `~/workspace/a17k-01`, it fetches `main` from `origin`, checks out `worktree/a17k-01` (creating it if needed), hard-resets it to `main`, and unsets its upstream so a later bare `git push` can't update a remote copy.
+
+Run from the primary clone, there is no scratch branch to throw away, so the equivalent end state is `main` itself: it fetches `main`, checks it out, and hard-resets it to the fetched tip. The upstream is kept (`main` is supposed to track `origin/main`), `--prefix` is ignored, and the branch you were on is left in place — you're just no longer on it.
 
 The logic lives in [`plugins/ark/scripts/reset-worktree.sh`](plugins/ark/scripts/reset-worktree.sh) and is runnable on its own:
 
@@ -49,7 +51,7 @@ The command wrapper exists so the script is distributed with the plugin and so C
 
 - `--base` sets the base branch (default `main`).
 - `--prefix` changes the namespace (default `worktree`); `--prefix ''` gives a bare `a17k-01`. A prefix **cannot** be an existing branch name — git stores refs as filesystem paths, so with a `main` branch present the ref `main/a17k-01` is impossible (`cannot lock ref 'refs/heads/main/a17k-01': 'refs/heads/main' exists`). That's why the namespace is `worktree/` rather than `main/`; the script rejects a colliding prefix up front.
-- If `main` is checked out in another worktree, `git fetch origin main:main` can't fast-forward it; the script falls back to fetching and resetting to `origin/main`.
+- If `main` is already checked out — in another worktree, or in the primary clone you're running from — `git fetch origin main:main` can't fast-forward it; the script falls back to fetching and resetting to `origin/main`.
 - `reset --hard` leaves untracked files alone. The script lists any that survive rather than deleting them.
 
 [`reset-worktree.test.sh`](plugins/ark/scripts/reset-worktree.test.sh) covers these paths against a throwaway repo and runs in CI.
