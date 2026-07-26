@@ -45,3 +45,15 @@ jobs:
             echo "No plugins found under plugins/" >&2
             exit 1
           fi
+
+      - name: Run plugin script tests
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          # No git identity setup needed: the suites suppress ambient git config
+          # and pass identity via GIT_AUTHOR_* / GIT_COMMITTER_* env vars.
+          for test in plugins/*/scripts/*.test.sh; do
+            echo "::group::${test}"
+            bash "${test}"
+            echo "::endgroup::"
+          done
