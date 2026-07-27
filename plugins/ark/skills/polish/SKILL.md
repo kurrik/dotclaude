@@ -1,6 +1,6 @@
 ---
 name: polish
-description: Frontload the PR review cycle before pushing a branch. Runs up to three reviewers in parallel subagents (a Claude reviewer, Codex CLI review if installed, and a check against the repo's review-principles corpus if one exists), triages and fixes their findings autonomously without expanding scope, commits each round with the feedback and justification in the message, and loops until findings are exhausted, nitty, or need a human. Use before /ark:pr, or whenever asked to polish a branch for review.
+description: Frontload the PR review cycle before pushing a branch. Runs up to three reviewers in parallel subagents (a Claude reviewer, Codex CLI review if installed, and a check against a layered review-principles corpus — general principles bundled with this skill, plus machine-level ~/.claude/review-principles and the repo's .claude/review-principles when present), triages and fixes their findings autonomously without expanding scope, commits each round with the feedback and justification in the message, and loops until findings are exhausted, nitty, or need a human. Use before /ark:pr, or whenever asked to polish a branch for review.
 ---
 
 # ark:polish — frontload the review cycle
@@ -60,10 +60,11 @@ Do these in order — each depends on the one before it:
 ## Step 2 — Run the reviewers in parallel
 
 Up to three legs. Before launching, check availability: the Codex leg needs
-the `codex` CLI on PATH (`command -v codex`); the corpus leg needs a
-`.claude/review-principles/` directory in the repo. An unavailable leg is
-skipped with a one-line note in the report — that's a smaller panel, not a
-failure. Launch every available leg concurrently; do not run them serially.
+the `codex` CLI on PATH (`command -v codex`); the Claude and corpus legs are
+always available (the corpus's general layer ships with this skill). An
+unavailable leg is skipped with a one-line note in the report — that's a
+smaller panel, not a failure. Launch every available leg concurrently; do
+not run them serially.
 
 1. **Claude reviewer** (always available) — an Agent (general-purpose)
    subagent that reviews the full branch diff (`git diff -M <BASE>...HEAD`)
@@ -97,9 +98,26 @@ failure. Launch every available leg concurrently; do not run them serially.
    subagent returns the findings verbatim, plus a one-line note if codex
    errored (auth, network) rather than papering over it.
 
-3. **Corpus reviewer** (if the repo has `.claude/review-principles/`) — an
-   Agent (general-purpose) subagent instructed to:
-   - Read every file in `.claude/review-principles/` (skip `README.md`).
+3. **Corpus reviewer** (always available) — the corpus is layered across up
+   to three directories, most general first:
+
+   1. **Bundled** — the `principles/` directory next to this SKILL.md
+      (`${CLAUDE_PLUGIN_ROOT}/skills/polish/principles/` when installed as a
+      plugin). Always present; resolve it to an absolute path before
+      spawning the subagent — the subagent won't know where the skill lives.
+   2. **Machine** — `~/.claude/review-principles/`, if it exists
+      (machine-specific, cross-repo rules).
+   3. **Repo** — `.claude/review-principles/` at the repo root, if it exists
+      (repo-specific rules, evidence, and overrides).
+
+   Spawn an Agent (general-purpose) subagent, passing it the absolute paths
+   of the layers that exist, instructed to:
+   - Read every principle file in each layer (skip each layer's
+     `README.md`). Files with the same name in more than one layer are the
+     *same principle*: read them together, with the deeper layer
+     (repo > machine > bundled) augmenting the rule and winning outright
+     where they conflict — a repo file may narrow, extend, or explicitly
+     suspend a bundled rule.
    - Read the full branch diff (`git diff -M <BASE>...HEAD`).
    - For each principle, check whether the diff violates it. Report only real
      violations, citing the principle filename and the offending hunk. Confirm
@@ -158,14 +176,17 @@ Reviewers: claude-reviewer, codex, review-principles
 
 List only the legs that actually ran (see the failure rule in Step 2).
 
-If the repo has a `.claude/review-principles/` corpus and a finding revealed
-a *generalizable* lesson not already covered there, follow the corpus's own
-admission rule (typically documented in its README — e.g. requiring evidence
-from real merged-PR review history). Evidence from this branch's own polish
-rounds never qualifies on its own: if real review history backs the lesson,
-draft the principle file in the same commit; otherwise list it in the final
-report as a corpus candidate for the human to promote once history exists.
-If the repo has no corpus, skip this — don't create one unasked.
+If a finding revealed a lesson not already covered by any corpus layer,
+route it by scope. Repo-specific lessons: if the repo has a
+`.claude/review-principles/` layer, follow its admission rule (typically in
+its README — e.g. requiring evidence from real merged-PR review history);
+evidence from this branch's own polish rounds never qualifies on its own. If
+real review history backs the lesson, draft the principle file in the same
+commit; otherwise list it in the final report as a corpus candidate for the
+human to promote once history exists. If the repo has no corpus directory,
+don't create one unasked — put the candidate in the report. Lessons that
+generalize beyond the repo: never edit the bundled or machine layers
+mid-polish — list them in the report as candidates for those layers.
 
 ## Step 5 — Loop or stop
 
