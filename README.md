@@ -19,13 +19,14 @@ Or share it across **all** your instances declaratively (recommended) — see [S
 
 | Plugin | Provides | Invoke as |
 | --- | --- | --- |
-| **`ark`** | Git & GitHub workflow commands | `/ark:pr`, `/ark:review`, `/ark:reset-worktree` |
+| **`ark`** | Git & GitHub workflow commands | `/ark:pr`, `/ark:review`, `/ark:reset-worktree`, `/ark:polish` |
 
+- **`/ark:polish`** — frontload the PR review cycle before pushing: run up to three reviewers in parallel subagents (a Claude reviewer, [Codex CLI](https://github.com/openai/codex) review if installed, and a check against the repo's `.claude/review-principles/` corpus if one exists), triage and fix findings without expanding scope, commit each round with the audit trail in the message, and loop until findings are exhausted, nitty, or need a human. Designed to run before `/ark:pr`.
 - **`/ark:pr`** — stage, commit, push the current branch, and open a GitHub PR with an auto-generated description that follows the repo's PR template.
 - **`/ark:review`** — fetch PR review comments, address them, push fixes, and reply to each thread through a single pending review.
 - **`/ark:reset-worktree`** — reset the current git worktree's branch back to the base branch, or the primary clone back to a clean `main` checkout. Asks before discarding uncommitted work.
 
-> **Requirements:** `/ark:pr` and `/ark:review` use the [GitHub CLI (`gh`)](https://cli.github.com) signed in to your account. No `gh` extensions needed — `/ark:review` talks to GitHub's GraphQL API directly via `gh api`. `/ark:reset-worktree` needs only `git`.
+> **Requirements:** `/ark:pr` and `/ark:review` use the [GitHub CLI (`gh`)](https://cli.github.com) signed in to your account. No `gh` extensions needed — `/ark:review` talks to GitHub's GraphQL API directly via `gh api`. `/ark:reset-worktree` needs only `git`. `/ark:polish` needs only `git`; its Codex and review-principles reviewer legs activate automatically when the `codex` CLI or a `.claude/review-principles/` directory is present.
 
 ### `/ark:reset-worktree`
 
@@ -85,6 +86,9 @@ dotclaude/
 │       │   ├── pr.md
 │       │   ├── reset-worktree.md
 │       │   └── review.md
+│       ├── skills/              # Skills (one directory per skill)
+│       │   └── polish/
+│       │       └── SKILL.md
 │       └── scripts/             # Helper scripts, reached via ${CLAUDE_PLUGIN_ROOT}
 │           ├── reset-worktree.sh
 │           └── reset-worktree.test.sh
