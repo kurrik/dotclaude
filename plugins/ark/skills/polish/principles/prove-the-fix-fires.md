@@ -38,6 +38,13 @@ zero progress.
 fixed twice while `authed = false` remained on line 51; round 3: "Still here
 after two rounds of comments."
 
+**Violation — PR a17k/a17k#371:** a shutdown-flush fix moved the hook to an
+earlier lifecycle phase for a correct reason, but registered it inside an
+encapsulated plugin — where the framework gives child instances an empty array
+for that phase and runs only the root's. The hook landed where nothing reads
+it, making the fix strictly *worse* than the code it replaced, with CI green
+because every test called the flush directly.
+
 **Violation — PR #353/#236:** error messages told the operator to "push
 again" (can't retrigger a path-filtered workflow) and to use a `--source`
 selector that "also resolves through `bySlug.get(...)`" — the escape hatch
@@ -47,3 +54,8 @@ the fix advertised didn't exist.
 reasoning about it" — the author tested GitHub's `total_count` de-dup
 behavior on the PR's own head commit before changing the guard; the thread
 closed in one round.
+
+**Done right — PR a17k/a17k#371:** an intermittent failure a previous commit
+claimed to have fixed was re-measured rather than assumed (peak 11 connections
+against a pool of 20, zero blocked queries), and the claim withdrawn in the
+next commit: "draining removed a real contributor; it wasn't the whole story."

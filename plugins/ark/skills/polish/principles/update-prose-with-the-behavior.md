@@ -37,6 +37,19 @@ transient failure*" directly above the line that caches the transient
 failure. Two reviewers flagged it; it took until round 4 to land the one-line
 deletion.
 
+**Violation — PR a17k/a17k#371:** the commit message, the PR body, and the
+architecture doc all stated that a normalization helper had moved out of the
+SPA into a shared library. The SPA's byte-identical copy was still there and
+still the live path for every save — "it didn't take over, it duplicated it" —
+leaving two implementations that must agree, in exactly the place the shared
+module existed to prevent drift. A claim about a *move* is checkable by
+grepping for the old copy.
+
+**Violation — PR a17k/a17k#371:** a later round updated a doc's narrative
+paragraph to match a new frame contract but left the per-frame enumeration —
+the part a client implementer actually reads — describing the old one. Drift
+moved rather than closed.
+
 **Violation — PR #353:** the code moved from a status denylist to an
 allowlist; the doc kept naming "the incomplete set the code no longer uses,
 and a future reader… would reintroduce the bug."
