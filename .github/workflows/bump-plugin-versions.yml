@@ -1,0 +1,83 @@
+name: Bump plugin versions
+
+# After a merge to main that changes plugin content, patch-bump the version in
+# each affected plugin's plugin.json so clients with auto-update enabled pick up
+# the change (Claude Code only re-installs a plugin when its resolved version
+# differs from the cached one).
+#
+# Loop safety: pushes made with the default GITHUB_TOKEN do not trigger new
+# workflow runs, and a plugin whose version already changed in the same push
+# (i.e. the PR bumped it manually) is skipped.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "plugins/**"
+
+concurrency:
+  group: bump-versions
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Bump versions for changed plugins
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+
+          BEFORE="${{ github.event.before }}"
+          AFTER="${{ github.sha }}"
+          # On force pushes or brand-new branches BEFORE can be missing/zeros.
+          if ! git cat-file -e "${BEFORE}^{commit}" 2>/dev/null; then
+            BEFORE="${AFTER}~1"
+          fi
+
+          changed=0
+          for manifest in plugins/*/.claude-plugin/plugin.json; do
+            plugin_dir=$(dirname "$(dirname "$manifest")")
+
+            if git diff --quiet "$BEFORE" "$AFTER" -- "$plugin_dir"; then
+              continue
+            fi
+
+            version=$(jq -r '.version // empty' "$manifest")
+            if [ -z "$version" ]; then
+              echo "$plugin_dir: no version field (every commit is a new version), skipping"
+              continue
+            fi
+
+            old_version=$(git show "$BEFORE:$manifest" 2>/dev/null | jq -r '.version // empty' || true)
+            if [ -n "$old_version" ] && [ "$old_version" != "$version" ]; then
+              echo "$plugin_dir: version already bumped in this push ($old_version -> $version), skipping"
+              continue
+            fi
+
+            new_version=$(echo "$version" | awk -F. '{printf "%d.%d.%d", $1, $2, $3 + 1}')
+            jq --arg v "$new_version" '.version = $v' "$manifest" > "$manifest.tmp"
+            mv "$manifest.tmp" "$manifest"
+            echo "$plugin_dir: $version -> $new_version"
+            changed=1
+          done
+
+          if [ "$changed" -eq 1 ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add plugins/*/.claude-plugin/plugin.json
+            git commit -m "chore: bump plugin versions after content change"
+            # main may have moved since this run's SHA was checked out (e.g. a
+            # second merge queued behind this run) — rebase so the push fast-forwards.
+            git pull --rebase origin main
+            git push
+          else
+            echo "No version bumps needed."
+          fi
