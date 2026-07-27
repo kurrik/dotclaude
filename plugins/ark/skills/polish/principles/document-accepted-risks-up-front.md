@@ -38,6 +38,13 @@ the suffixes *and documented the residual* — an outcome writable in round 1.
 CodeRabbit withdraw its 30-day-replay finding as "already addressed by the
 documented decision" in one exchange.
 
+**Done right — PR a17k/a17k#371:** a reviewer's P1 (partially-typed rows are
+pruned before persistence while the session still reports itself reconciled)
+was declined rather than fixed, with both suggested remedies costed in the
+reply — one would permanently disable the feature's main path, the other was a
+domain-model change outside a transport PR — and the residual recorded in the
+project's decisions doc. The thread closed in one exchange and did not return.
+
 **Done right — PR #340:** faced with opposite demands on PKCE-vs-code-burn
 ordering, the author held: "you and the other reviewer are asking for
 opposite things on the same lines" — and the owner's call settled it.
