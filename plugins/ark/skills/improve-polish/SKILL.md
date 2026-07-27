@@ -61,17 +61,29 @@ Collect every review signal this session touched, from three sources:
      query($owner: String!, $repo: String!, $number: Int!) {
        repository(owner: $owner, name: $repo) {
          pullRequest(number: $number) {
-           reviews(first: 50) { nodes { author { login } state body submittedAt } }
+           reviews(first: 50) {
+             pageInfo { hasNextPage endCursor }
+             nodes { author { login } state body submittedAt }
+           }
            reviewThreads(first: 100) {
+             pageInfo { hasNextPage endCursor }
              nodes {
                isResolved isOutdated path line
-               comments(first: 50) { nodes { author { login } body createdAt } }
+               comments(first: 50) {
+                 pageInfo { hasNextPage endCursor }
+                 nodes { author { login } body createdAt }
+               }
              }
            }
          }
        }
      }' -F owner=<owner> -F repo=<repo> -F number=<pr-number>
    ```
+
+   If any `hasNextPage` is true, re-query that connection with an
+   `after: <endCursor>` argument until it is exhausted — a truncated history
+   silently drops later feedback (often the resolved threads that matter
+   most) and produces misleading lessons.
 
    Resolved threads matter most here — unlike in `ark:review`, a resolved
    thread is a *completed* feedback cycle, which is exactly the evidence a
@@ -139,6 +151,11 @@ Present the complete draft to the human — every file, full text, plus the
 dropped lessons and why — and get explicit approval. Apply any edits they
 ask for. Nothing is written to GitHub before this gate.
 
+If no file survives triage and approval — every lesson dropped as already
+covered, repo-specific, or under-evidenced — stop here and skip to the
+Step 6 report. There is nothing to publish; creating an empty branch would
+only make PR creation fail.
+
 ## Step 5 — Publish via the GitHub API (no checkout)
 
 Write each approved file to the scratchpad, then drive everything with
@@ -151,7 +168,7 @@ PDIR=plugins/ark/skills/polish/principles
 # 1. Branch off the default branch's current tip:
 DEFAULT=$(gh api "repos/$REPO" --jq .default_branch)
 HEAD_SHA=$(gh api "repos/$REPO/git/ref/heads/$DEFAULT" --jq .object.sha)
-BRANCH="improve-polish/$(date +%Y%m%d)-<short-slug>"
+BRANCH="improve-polish/$(date +%Y%m%d-%H%M%S)-<short-slug>"
 gh api "repos/$REPO/git/refs" -f ref="refs/heads/$BRANCH" -f sha="$HEAD_SHA"
 
 # 2. One PUT per file (each creates a commit on the branch):
@@ -173,6 +190,10 @@ The PR body must let the human review the *evidence*, not just the prose:
 which repo/PRs were mined, a per-file summary of what changed and why, and
 links to the PRs cited in each example. Write it to a scratchpad file and
 pass it with `-F body=@file` so multi-line content survives quoting.
+
+**If the branch-creation call fails with 422 "Reference already exists"** (a
+retried run racing an earlier attempt, despite the timestamped name), retry
+once with a fresh suffix rather than reusing the stale branch.
 
 **If the branch-creation call fails with 403/404** (no push access — e.g. a
 machine authenticated as a different account), fork instead:
