@@ -11,14 +11,7 @@ Do the following steps in order. If any step fails, stop and report the error cl
 
 2. **Stage and commit** all current changes. Look at the diff to write a clear, conventional commit message. If there are no uncommitted changes, skip this step.
 
-3. **Review the full branch diff before pushing.** Run the `/code-review` slash command (the plain local form — not `/code-review ultra`, which only I, the user, can launch), scoped to the whole branch — everything in `<base>...HEAD`, not just the commit you just made. If you have no way to invoke a slash command in this session, don't skip the step: read the full branch diff and review it yourself against the same bar, and say in the final summary that you reviewed inline rather than via `/code-review`. Then triage the findings the same way review feedback is triaged in `/ark:review`:
-
-   - **Real bug or defect in this branch.** Fix it now.
-   - **Valid concern, wrong suggested fix.** Fix the underlying concern in the way that fits the branch's design.
-   - **Not valid, or out of scope for this branch.** Leave the code alone. Don't expand the diff to satisfy a finding the PR isn't about.
-   - **Unclear or significant enough that I should decide.** Stop and ask me before continuing.
-
-   Commit any fixes. Amend into the step 2 commit if that commit hasn't been pushed yet and the fix belongs to it; otherwise make a separate commit. If the review surfaces nothing, say so and move on. Report the triage decisions in the final summary (step 9).
+3. **Polish the branch before pushing.** Unless I explicitly told you to skip it (e.g. "without polish", "skip the review", "just push"), run the `ark:polish` skill on the branch. It reviews everything in `<base>...HEAD` with parallel reviewers, triages the findings (fixing real defects, declining scope expansion), and commits each round with the audit trail — so don't duplicate that triage here. Skip the run only if a polish loop this session already covered the current branch tip; a run from before commits landed is stale. If polish exits blocked or round-capped — its report says the branch is *not* ready — stop and ask me before pushing. If the skill isn't available in this session, don't skip the step: review the full branch diff yourself against the same bar (correctness, security, performance, conventions), fix what's real without expanding scope, commit the fixes, and say in the final summary that you reviewed inline rather than via `ark:polish`. Report what the polish/review turned up in the final summary (step 9).
 
 4. **Push** the current branch to the remote. Set upstream if needed.
 
