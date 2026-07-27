@@ -33,29 +33,47 @@ Do these in order — each depends on the one before it:
 1. **Write the intent summary** (see ground rules) — the staging decision
    below is judged against it.
 
-2. **If the working tree is dirty, inventory it before committing anything:**
-   `git status --short`, then stage only the files that belong to this
-   branch's intent. Hard stop on anything secret-shaped (`.env`, `*.tfvars`,
-   rendered Secret manifests, credentials) — never commit those; ask the
-   human. Unrelated or generated files stay unstaged and get a one-line note
-   in the report. Then commit (polish reviews commits, so fixes land as clean
-   follow-up commits). On a fresh branch this first commit may be the entire
-   diff — that's the normal pre-first-commit case, not an error.
+2. **Confirm HEAD is a feature branch.** Polish commits to the current
+   branch, and the follow-on `/ark:pr` pushes it. If HEAD is detached, or
+   sitting on the remote default branch (compare against the base resolved
+   in item 4 — peek ahead if needed), stop and ask the human for a feature
+   branch before committing anything.
 
-3. **Resolve the base and confirm there is a diff to review:**
+3. **If the working tree or index is dirty, inventory it before committing
+   anything.** Read the actual diffs — `git status --short`, then `git diff`
+   *and* `git diff --cached` — not just the paths: a file can mix in-scope
+   and out-of-scope hunks, and content someone staged earlier is not
+   automatically in scope. Stage only changes that belong to this branch's
+   intent, and unstage unrelated content already in the index
+   (`git restore --staged`). Hard stop on anything secret-shaped (`.env`,
+   `*.tfvars`, rendered Secret manifests, credential-looking content inside
+   ordinary files) — never commit those; ask the human. If one file mixes
+   in-scope and out-of-scope edits, don't stage it wholesale: split the
+   hunks, or ask the human if the split is ambiguous. Unrelated or generated
+   files stay unstaged and get a one-line note in the report. Then commit
+   (polish reviews commits, so fixes land as clean follow-up commits). On a
+   fresh branch this first commit may be the entire diff — that's the normal
+   pre-first-commit case, not an error.
+
+4. **Resolve the base and confirm there is a diff to review:**
 
    ```bash
    git fetch -q origin
-   BASE=$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null || echo origin/main)
+   BASE=$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null ||
+     git ls-remote --symref origin HEAD 2>/dev/null |
+     awk '/^ref:/ { sub("refs/heads/", "origin/", $2); print $2 }')
+   BASE=${BASE:-origin/main}
    git diff --stat ${BASE}...HEAD
    ```
 
    `BASE` keeps its `origin/` prefix on purpose: diffs must measure against
-   the just-fetched remote ref, not a possibly-stale local branch, and the
-   fallback must be executable — a comment is not a fallback. If the diff is
-   empty *now* — after any dirty work was committed in item 2 above — **stop
-   and say so**; that means a broken BASE or a branch with nothing on it,
-   never "reviewed and clean."
+   the just-fetched remote ref, not a possibly-stale local branch.
+   `origin/HEAD` is often unset in locally-initialized clones, so the second
+   resolver asks the remote for its advertised HEAD; `origin/main` is only
+   the last-resort guess, and every fallback must be executable — a comment
+   is not a fallback. If the diff is empty *now* — after any dirty work was
+   committed in item 3 above — **stop and say so**; that means a broken BASE
+   or a branch with nothing on it, never "reviewed and clean."
 
 ## Step 2 — Run the reviewers in parallel
 
@@ -154,7 +172,12 @@ After fixing, do a holistic pass over the *new* full diff: fixes must compose
 Then run the repo's checks and fix failures: use whatever the repo's
 CLAUDE.md / AGENTS.md / contributing docs name as the standard pre-commit
 check (lint, typecheck, fast tests); if nothing is documented, run the
-project's standard build/test command for its toolchain.
+project's standard build/test command for its toolchain. If Step 1 left
+unrelated changes unstaged, the checks are validating the working tree, not
+the commit — before acting on a failure, confirm it comes from the branch
+diff rather than the unrelated files (does it implicate them? does it
+reproduce without them, e.g. in a clean worktree at HEAD?); a failure owned
+by the unrelated files gets a note in the report, not a fix here.
 
 ## Step 4 — Commit the round
 
@@ -208,4 +231,7 @@ includes the fixes). **Stop when any of these hits:**
 Summarize: rounds run, which reviewer legs ran (and which were skipped or
 failed), findings fixed / declined / parked per round (with the one-line
 reasons), any new principle files added, and exactly what needs the human's
-input. The branch is now ready for `/ark:pr`.
+input. End with an explicit readiness verdict: after a clean or
+diminishing-returns exit the branch is ready for `/ark:pr`; after a blocked
+or round-capped exit, say plainly that it is **not** ready and what must be
+resolved first.
