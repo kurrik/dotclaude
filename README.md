@@ -19,14 +19,15 @@ Or share it across **all** your instances declaratively (recommended) — see [S
 
 | Plugin | Provides | Invoke as |
 | --- | --- | --- |
-| **`ark`** | Git & GitHub workflow commands | `/ark:pr`, `/ark:review`, `/ark:reset-worktree`, `/ark:polish` |
+| **`ark`** | Git & GitHub workflow commands | `/ark:pr`, `/ark:review`, `/ark:reset-worktree`, `/ark:polish`, `/ark:improve-polish` |
 
 - **`/ark:polish`** — frontload the PR review cycle before pushing: run up to three reviewers in parallel subagents (a Claude reviewer, [Codex CLI](https://github.com/openai/codex) review if installed, and a check against a layered review-principles corpus), triage and fix findings without expanding scope, commit each round with the audit trail in the message, and loop until findings are exhausted, nitty, or need a human. Designed to run before `/ark:pr`. The corpus has three layers: general principles bundled with the skill ([`plugins/ark/skills/polish/principles/`](plugins/ark/skills/polish/principles/)), machine-specific rules in `~/.claude/review-principles/`, and repo-specific rules in the repo's `.claude/review-principles/` — same-named files are the same principle, with the more specific layer winning on conflict.
+- **`/ark:improve-polish`** — upstream review-cycle lessons from the current session back into the bundled corpus: diagnose this session's polish rounds, PR review feedback, and human corrections for generalizable lessons (errors and feedback to anticipate, better fix patterns), draft principle updates with real positive and negative examples, and — after you approve the draft — open a PR against this repo entirely through `gh api`, so it works from any machine that installed the marketplace with no local checkout of `kurrik/dotclaude`.
 - **`/ark:pr`** — stage, commit, push the current branch, and open a GitHub PR with an auto-generated description that follows the repo's PR template. Runs `/ark:polish` on the branch before pushing unless you explicitly say to skip it.
 - **`/ark:review`** — fetch PR review comments, address them, push fixes, and reply to each thread through a single pending review. Runs `/ark:polish` on the fix commits before pushing unless you explicitly say to skip it.
 - **`/ark:reset-worktree`** — reset the current git worktree's branch back to the base branch, or the primary clone back to a clean `main` checkout. Asks before discarding uncommitted work.
 
-> **Requirements:** `/ark:pr` and `/ark:review` use the [GitHub CLI (`gh`)](https://cli.github.com) signed in to your account. No `gh` extensions needed — `/ark:review` talks to GitHub's GraphQL API directly via `gh api`. `/ark:reset-worktree` needs only `git`. `/ark:polish` needs only `git`; its Codex reviewer leg activates automatically when the `codex` CLI is present, and its principles leg always runs — general principles ship with the skill, augmented by `~/.claude/review-principles/` and the repo's `.claude/review-principles/` when those exist.
+> **Requirements:** `/ark:pr` and `/ark:review` use the [GitHub CLI (`gh`)](https://cli.github.com) signed in to your account. No `gh` extensions needed — `/ark:review` talks to GitHub's GraphQL API directly via `gh api`. `/ark:reset-worktree` needs only `git`. `/ark:polish` needs only `git`; its Codex reviewer leg activates automatically when the `codex` CLI is present, and its principles leg always runs — general principles ship with the skill, augmented by `~/.claude/review-principles/` and the repo's `.claude/review-principles/` when those exist. `/ark:improve-polish` needs `gh` signed in to an account that can push to (or fork) `kurrik/dotclaude`.
 
 ### `/ark:reset-worktree`
 
@@ -87,6 +88,8 @@ dotclaude/
 │       │   ├── reset-worktree.md
 │       │   └── review.md
 │       ├── skills/              # Skills (one directory per skill)
+│       │   ├── improve-polish/
+│       │   │   └── SKILL.md     # Upstreams session review lessons into polish's corpus
 │       │   └── polish/
 │       │       ├── SKILL.md
 │       │       └── principles/  # Bundled general layer of the review-principles corpus
