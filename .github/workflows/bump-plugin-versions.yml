@@ -5,9 +5,18 @@ name: Bump plugin versions
 # the change (Claude Code only re-installs a plugin when its resolved version
 # differs from the cached one).
 #
-# Loop safety: pushes made with the default GITHUB_TOKEN do not trigger new
-# workflow runs, and a plugin whose version already changed in the same push
-# (i.e. the PR bumped it manually) is skipped.
+# The bump lands through a PR that this workflow opens and immediately
+# squash-merges: the main ruleset requires changes to go through a pull
+# request, and on user-owned repos GitHub refuses to add the Actions app as a
+# ruleset bypass actor ("must be part of the ruleset source or owner
+# organization"), so a direct push from this workflow can never succeed. The
+# immediate self-merge works because the ruleset requires no approvals or
+# status checks; if either is ever added, this merge step will start failing
+# and the workflow will need a different actor (e.g. a deploy key) instead.
+#
+# Loop safety: pushes and merges made with the default GITHUB_TOKEN do not
+# trigger new workflow runs, and a plugin whose version already changed in the
+# same push (i.e. the PR bumped it manually) is skipped.
 
 on:
   push:
@@ -21,6 +30,7 @@ concurrency:
 
 permissions:
   contents: write
+  pull-requests: write
 
 jobs:
   bump:
@@ -72,12 +82,19 @@ jobs:
           if [ "$changed" -eq 1 ]; then
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            branch="bump-plugin-versions/${{ github.run_id }}"
+            git checkout -b "$branch"
             git add plugins/*/.claude-plugin/plugin.json
             git commit -m "chore: bump plugin versions after content change"
-            # main may have moved since this run's SHA was checked out (e.g. a
-            # second merge queued behind this run) — rebase so the push fast-forwards.
-            git pull --rebase origin main
-            git push
+            git push -u origin "$branch"
+            gh pr create \
+              --base main \
+              --head "$branch" \
+              --title "chore: bump plugin versions after content change" \
+              --body "Automated patch bump for plugins changed in ${AFTER}."
+            gh pr merge "$branch" --squash --delete-branch
           else
             echo "No version bumps needed."
           fi
+        env:
+          GH_TOKEN: ${{ github.token }}
