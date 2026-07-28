@@ -1,4 +1,5 @@
 ---
+name: reset-worktree
 description: Reset the current git worktree's branch back to the base branch, or the primary clone back to a clean base checkout
 argument-hint: "[--base <branch>] [--prefix <ns>] [--dry-run]"
 allowed-tools: Bash(bash:*), Bash(git status:*), Bash(git stash:*)
@@ -6,14 +7,14 @@ allowed-tools: Bash(bash:*), Bash(git status:*), Bash(git stash:*)
 
 Get back to a clean state on top of the repo's base branch. In a linked worktree that means the worktree's own branch; in the primary working tree it means the base branch itself.
 
-The work is done by `${CLAUDE_PLUGIN_ROOT}/scripts/reset-worktree.sh`. Your job is to run it and handle the one decision it deliberately refuses to make on its own: discarding uncommitted work.
+The work is done by `scripts/reset-worktree.sh` inside this skill's directory (the directory containing this SKILL.md) — resolve it to an absolute path before running it. Your job is to run it and handle the one decision it deliberately refuses to make on its own: discarding uncommitted work.
 
-Extra arguments from the user (if any): `$ARGUMENTS` — pass them through to the script verbatim.
+If the user passed extra arguments (e.g. `--base`, `--prefix`, `--dry-run`), append them to the script invocation verbatim.
 
 1. **Run the script:**
 
    ```bash
-   bash "${CLAUDE_PLUGIN_ROOT}/scripts/reset-worktree.sh" $ARGUMENTS
+   bash <absolute-path-to-this-skill>/scripts/reset-worktree.sh <user arguments, if any>
    ```
 
    It fetches the base branch (`main` unless `--base` says otherwise), then behaves according to where it ran:
@@ -27,7 +28,7 @@ Extra arguments from the user (if any): `$ARGUMENTS` — pass them through to th
    - **3** — the working tree has uncommitted changes and the script refused to discard them. Show the user the dirty-file list from the script's output and **ask** whether to discard it. Only if they confirm, re-run with `--force`:
 
      ```bash
-     bash "${CLAUDE_PLUGIN_ROOT}/scripts/reset-worktree.sh" --force $ARGUMENTS
+     bash <absolute-path-to-this-skill>/scripts/reset-worktree.sh --force <user arguments, if any>
      ```
 
      If they decline, stop and leave the working tree untouched. Offer `git stash --include-untracked` as the alternative.

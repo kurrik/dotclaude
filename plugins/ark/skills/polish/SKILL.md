@@ -120,9 +120,9 @@ not run them serially.
    to three directories, most general first:
 
    1. **Bundled** — the `principles/` directory next to this SKILL.md
-      (`${CLAUDE_PLUGIN_ROOT}/skills/polish/principles/` when installed as a
-      plugin). Always present; resolve it to an absolute path before
-      spawning the subagent — the subagent won't know where the skill lives.
+      (inside the installed plugin's `skills/polish/` directory). Always
+      present; resolve it to an absolute path before spawning the subagent —
+      the subagent won't know where the skill lives.
    2. **Machine** — `~/.claude/review-principles/`, if it exists
       (machine-specific, cross-repo rules).
    3. **Repo** — `.claude/review-principles/` at the repo root, if it exists

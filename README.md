@@ -2,11 +2,11 @@
 
 [![Validate marketplace](https://github.com/kurrik/dotclaude/actions/workflows/validate.yml/badge.svg)](https://github.com/kurrik/dotclaude/actions/workflows/validate.yml)
 
-A personal [Claude Code plugin marketplace](https://docs.claude.com/en/docs/claude-code/plugins) — a single Git repo holding skills and slash commands, shared across every Claude Code instance I use.
+A personal [Claude Code plugin marketplace](https://docs.claude.com/en/docs/claude-code/plugins) — a single Git repo holding skills, shared across every Claude Code instance I use. The same repo also works as an [OpenAI Codex plugin marketplace](https://developers.openai.com/codex/plugins) — see [Using with Codex](#using-with-codex).
 
 ## Quick start
 
-Add the marketplace, then install a plugin:
+**Claude Code** — add the marketplace, then install a plugin:
 
 ```
 /plugin marketplace add kurrik/dotclaude
@@ -15,11 +15,18 @@ Add the marketplace, then install a plugin:
 
 Or share it across **all** your instances declaratively (recommended) — see [Share across every instance](#share-across-every-instance) below.
 
+**Codex CLI** — same two steps, from a shell:
+
+```
+codex plugin marketplace add kurrik/dotclaude
+codex plugin add ark@dotclaude
+```
+
 ## What's in here
 
 | Plugin | Provides | Invoke as |
 | --- | --- | --- |
-| **`ark`** | Git & GitHub workflow commands | `/ark:pr`, `/ark:review`, `/ark:reset-worktree`, `/ark:polish`, `/ark:improve-polish` |
+| **`ark`** | Git & GitHub workflow skills | Claude Code: `/ark:pr`, `/ark:review`, `/ark:reset-worktree`, `/ark:polish`, `/ark:improve-polish` · Codex: the same names via `$` mention (e.g. `$ark:pr`) or `/skills` |
 
 - **`/ark:polish`** — frontload the PR review cycle before pushing: run up to three reviewers in parallel subagents (a Claude reviewer, [Codex CLI](https://github.com/openai/codex) review if installed, and a check against a layered review-principles corpus), triage and fix findings without expanding scope, commit each round with the audit trail in the message, and loop until findings are exhausted, nitty, or need a human. Designed to run before `/ark:pr`. The corpus has three layers: general principles bundled with the skill ([`plugins/ark/skills/polish/principles/`](plugins/ark/skills/polish/principles/)), machine-specific rules in `~/.claude/review-principles/`, and repo-specific rules in the repo's `.claude/review-principles/` — same-named files are the same principle, with the more specific layer winning on conflict.
 - **`/ark:improve-polish`** — upstream review-cycle lessons from the current session back into the bundled corpus: diagnose this session's polish rounds, PR review feedback, and human corrections for generalizable lessons (errors and feedback to anticipate, better fix patterns), draft principle updates with real positive and negative examples, and — after you approve the draft — open a PR against this repo entirely through `gh api`, so it works from any machine that installed the marketplace with no local checkout of `kurrik/dotclaude`.
@@ -43,34 +50,33 @@ Run from `~/workspace/a17k-01`, it fetches `main` from `origin`, checks out `wor
 
 Run from the primary clone, there is no scratch branch to throw away, so the equivalent end state is `main` itself: it fetches `main`, checks it out, and hard-resets it to the fetched tip. The upstream is kept (`main` is supposed to track `origin/main`), `--prefix` is ignored, and the branch you were on is left in place — you're just no longer on it.
 
-The logic lives in [`plugins/ark/scripts/reset-worktree.sh`](plugins/ark/scripts/reset-worktree.sh) and is runnable on its own:
+The logic lives in [`plugins/ark/skills/reset-worktree/scripts/reset-worktree.sh`](plugins/ark/skills/reset-worktree/scripts/reset-worktree.sh) and is runnable on its own:
 
 ```
 bash reset-worktree.sh [--force] [--base <branch>] [--prefix <ns>] [--dry-run]
 ```
 
-The command wrapper exists so the script is distributed with the plugin and so Claude can handle the one case the script won't decide alone: it exits `3` on a dirty worktree, and the command then asks you before re-running with `--force`.
+The skill wrapper exists so the script is distributed with the plugin and so the agent can handle the one case the script won't decide alone: it exits `3` on a dirty worktree, and the skill then asks you before re-running with `--force`.
 
 - `--base` sets the base branch (default `main`).
 - `--prefix` changes the namespace (default `worktree`); `--prefix ''` gives a bare `a17k-01`. A prefix **cannot** be an existing branch name — git stores refs as filesystem paths, so with a `main` branch present the ref `main/a17k-01` is impossible (`cannot lock ref 'refs/heads/main/a17k-01': 'refs/heads/main' exists`). That's why the namespace is `worktree/` rather than `main/`; the script rejects a colliding prefix up front.
 - If `main` is already checked out — in another worktree, or in the primary clone you're running from — `git fetch origin main:main` can't fast-forward it; the script falls back to fetching and resetting to `origin/main`.
 - `reset --hard` leaves untracked files alone. The script lists any that survive rather than deleting them.
 
-[`reset-worktree.test.sh`](plugins/ark/scripts/reset-worktree.test.sh) covers these paths against a throwaway repo and runs in CI.
+[`reset-worktree.test.sh`](plugins/ark/skills/reset-worktree/scripts/reset-worktree.test.sh) covers these paths against a throwaway repo and runs in CI.
 
 ## How naming / prefixes work
 
 This trips people up, so to be explicit:
 
-- The **marketplace name** (`dotclaude`) only appears when installing — `/plugin install <plugin>@dotclaude` — and as the key in settings. It does **not** prefix anything.
-- The **plugin name** is the prefix. The `ark` plugin's commands become `/ark:pr` and `/ark:review`; a skill `foo` in the `ark` plugin would be `ark:foo`.
+- The **marketplace name** (`dotclaude`) only appears when installing — `/plugin install <plugin>@dotclaude` (Claude Code) or `codex plugin add <plugin>@dotclaude` (Codex) — and as the key in settings. It does **not** prefix anything.
+- The **plugin name** is the prefix. A skill `foo` in the `ark` plugin is `ark:foo` in both tools — `/ark:foo` as a Claude Code slash command, `$ark:foo` as a Codex mention.
 
-So when you add a command, the path determines the suffix and the plugin name determines the prefix:
+So when you add a skill, the directory name determines the suffix and the plugin name determines the prefix:
 
 ```
-plugins/ark/commands/pr.md          ->  /ark:pr
-plugins/ark/commands/deploy/web.md  ->  /ark:deploy:web
-plugins/ark/skills/triage/SKILL.md  ->  ark:triage   (model-invocable skill)
+plugins/ark/skills/pr/SKILL.md      ->  ark:pr
+plugins/ark/skills/triage/SKILL.md  ->  ark:triage
 ```
 
 ## Repository layout
@@ -83,24 +89,26 @@ dotclaude/
 │   └── ark/
 │       ├── .claude-plugin/
 │       │   └── plugin.json      # Plugin manifest (name, version, metadata)
-│       ├── commands/            # Slash commands  (flat .md files)
-│       │   ├── pr.md
-│       │   ├── reset-worktree.md
-│       │   └── review.md
-│       ├── skills/              # Skills (one directory per skill)
-│       │   ├── improve-polish/
-│       │   │   └── SKILL.md     # Upstreams session review lessons into polish's corpus
-│       │   └── polish/
-│       │       ├── SKILL.md
-│       │       └── principles/  # Bundled general layer of the review-principles corpus
-│       └── scripts/             # Helper scripts, reached via ${CLAUDE_PLUGIN_ROOT}
-│           ├── reset-worktree.sh
-│           └── reset-worktree.test.sh
+│       └── skills/              # Skills (one directory per skill)
+│           ├── improve-polish/
+│           │   └── SKILL.md     # Upstreams session review lessons into polish's corpus
+│           ├── polish/
+│           │   ├── SKILL.md
+│           │   └── principles/  # Bundled general layer of the review-principles corpus
+│           ├── pr/
+│           │   └── SKILL.md
+│           ├── reset-worktree/
+│           │   ├── SKILL.md
+│           │   └── scripts/     # Helper scripts, referenced relative to the skill dir
+│           │       ├── reset-worktree.sh
+│           │       └── reset-worktree.test.sh
+│           └── review/
+│               └── SKILL.md
 ├── README.md
 └── LICENSE
 ```
 
-Component directories (`commands/`, `skills/`, `agents/`, `hooks/`, `.mcp.json`) live at the **plugin root** — only `plugin.json` goes inside `.claude-plugin/`.
+Component directories (`skills/`, `commands/`, `agents/`, `hooks/`, `.mcp.json`) live at the **plugin root** — only `plugin.json` goes inside `.claude-plugin/`.
 
 ## Share across every instance
 
@@ -124,6 +132,29 @@ To make a plugin load automatically on every machine without running `/plugin in
 
 Replicate those two blocks in any machine's `~/.claude/settings.json` (or a project's `.claude/settings.json` to scope it to one repo) and the plugin is there on next launch.
 
+## Using with Codex
+
+The [Codex CLI](https://developers.openai.com/codex/cli/features) reads this repo directly as a plugin marketplace — it accepts the `.claude-plugin/marketplace.json` catalog and the `.claude-plugin/plugin.json` manifest as legacy-compatible locations, and discovers the same `skills/` directories. No Codex-specific files are needed.
+
+```
+codex plugin marketplace add kurrik/dotclaude
+codex plugin add ark@dotclaude
+```
+
+Then start a **new** Codex session (plugins load at session start). The skills surface under the same names as in Claude Code — `ark:pr`, `ark:review`, `ark:reset-worktree`, `ark:polish`, `ark:improve-polish` — invoked by typing `$` to mention one, via `/skills`, or implicitly by description.
+
+To pick up a new version later:
+
+```
+codex plugin marketplace upgrade dotclaude
+codex plugin add ark@dotclaude
+```
+
+Caveats:
+
+- `ark:polish` is written around Claude Code's parallel subagents; Codex will follow it inline without that parallelism, and its "Codex reviewer" leg (which shells out to `codex review`) is redundant when you're already inside Codex.
+- Claude-only frontmatter (`allowed-tools`, `argument-hint`) is ignored by Codex — invocations work, you just don't get the pre-approved tool list or argument autocomplete.
+
 ## Using `ark` in a cloud environment
 
 Claude's cloud environments — [Claude Code on the web](https://code.claude.com/docs/en/claude-code-on-the-web) and scheduled [Routines](https://code.claude.com/docs/en/routines) — preinstall `git` but **not** the `gh` CLI, and `gh`'s API calls need an explicit token. To use the `ark` commands there:
@@ -144,7 +175,7 @@ Because `/ark:review` uses `gh api` directly (no `gh` extensions), that's the wh
 ## Adding a new plugin
 
 1. Create `plugins/<name>/.claude-plugin/plugin.json` with at least `{ "name": "<name>" }`.
-2. Add commands under `plugins/<name>/commands/*.md` and/or skills under `plugins/<name>/skills/<skill>/SKILL.md`.
+2. Add skills under `plugins/<name>/skills/<skill>/SKILL.md`.
 3. Register it in `.claude-plugin/marketplace.json` by appending to the `plugins` array:
    ```json
    { "name": "<name>", "description": "…", "source": "./plugins/<name>" }
@@ -155,12 +186,19 @@ Because `/ark:review` uses `gh api` directly (no `gh` extensions), that's the wh
    ```
 5. On each instance, `/plugin marketplace update dotclaude` (or restart) picks up the change.
 
-> CI ([`.github/workflows/validate.yml`](.github/workflows/validate.yml)) re-runs `claude plugin validate` on the marketplace and every plugin for each push and PR, so a broken manifest can't land on `main`. It also runs every `plugins/*/scripts/*.test.sh`, so name a script's test suite that way and CI picks it up.
+> CI ([`.github/workflows/validate.yml`](.github/workflows/validate.yml)) re-runs `claude plugin validate` on the marketplace and every plugin for each push and PR, so a broken manifest can't land on `main`. It also runs every `plugins/*/scripts/*.test.sh` and `plugins/*/skills/*/scripts/*.test.sh`, so name a script's test suite that way and CI picks it up.
 
-### Adding a command vs. a skill
+### Why everything is a skill (not a slash command)
 
-- **Slash command** — a flat `.md` file in `commands/`, invoked as `/<plugin>:<file>`. Model-invocable by default (Claude may trigger it from its `description`) as well as user-invocable; add `disable-model-invocation: true` to the frontmatter to make it manual-only.
-- **Skill** — a `skills/<name>/SKILL.md` directory, for capabilities that may bundle scripts/references, auto-triggered by its `description`.
+Everything in this repo ships as a `skills/<name>/SKILL.md` directory because **both** Claude Code and Codex discover skills natively. In Claude Code a skill is user-invocable as `/<plugin>:<name>` (with `argument-hint`, `allowed-tools`, and `disable-model-invocation` frontmatter all supported) *and* model-invocable from its `description` — so a skill loses nothing compared to a `commands/*.md` slash command.
+
+Claude-only `commands/*.md` files, by contrast, only reach Codex through its automatic command→skill migration, which is unreliable: it silently skips any command file over ~4 KB or containing `$ARGUMENTS`, and the migrated names come out as `<plugin>:source-command-<name>`.
+
+To keep a skill portable across both tools:
+
+- Reference bundled files relative to the skill directory ("`scripts/foo.sh` inside this skill's directory") — `${CLAUDE_PLUGIN_ROOT}` and `${CLAUDE_SKILL_DIR}` only expand in Claude Code.
+- Don't rely on `$ARGUMENTS` substitution (Claude-only); phrase argument handling in prose. Claude Code appends unmatched arguments as `ARGUMENTS: <value>`, and in Codex the user's arguments follow the `$` mention in the prompt anyway.
+- Claude-only frontmatter (`allowed-tools`, `argument-hint`, `disable-model-invocation`) is ignored by Codex, so it's safe to keep.
 
 ## Versioning
 
