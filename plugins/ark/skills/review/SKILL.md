@@ -1,8 +1,9 @@
 ---
-description: Fetch PR review comments, address them, and push the fixes
+name: review
+description: Fetch PR review comments, address them, and push the fixes. Use when asked to address review feedback on the current branch's pull request.
 ---
 
-Do the following steps in order. This command talks to GitHub's GraphQL API directly through `gh api` — it needs an authenticated `gh` CLI but no `gh` extensions.
+Do the following steps in order. This skill talks to GitHub's GraphQL API directly through `gh api` — it needs an authenticated `gh` CLI but no `gh` extensions.
 
 1. **Identify the current PR and its intent.** Get the PR number, repo (owner/repo), and description for the current branch:
    gh pr view --json number,title,body,url,headRepositoryOwner,headRepository

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Exercises reset-worktree.sh against a throwaway origin + clone + worktree.
-# Run directly: bash plugins/ark/scripts/reset-worktree.test.sh
+# Run directly: bash plugins/ark/skills/reset-worktree/scripts/reset-worktree.test.sh
 set -uo pipefail
 
 SCRIPT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/reset-worktree.sh"

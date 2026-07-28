@@ -52,7 +52,7 @@ jobs:
           shopt -s nullglob
           # No git identity setup needed: the suites suppress ambient git config
           # and pass identity via GIT_AUTHOR_* / GIT_COMMITTER_* env vars.
-          for test in plugins/*/scripts/*.test.sh; do
+          for test in plugins/*/scripts/*.test.sh plugins/*/skills/*/scripts/*.test.sh; do
             echo "::group::${test}"
             bash "${test}"
             echo "::endgroup::"
