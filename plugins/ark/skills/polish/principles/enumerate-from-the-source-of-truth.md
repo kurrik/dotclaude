@@ -1,10 +1,11 @@
 # Enumerate from the source of truth
 
 When correctness depends on the complete membership of a set — statuses,
-enum values, tool names, address ranges, config keys, entities in a diagram —
-build the list from the authoritative source, never from memory or from the
-examples the reviewer happened to name. And treat "X is missing from this
-list" as "this list was never verified complete," not as "append X."
+enum values, tool names, address ranges, config keys, entities in a diagram,
+the valid shapes of a relationship — build the list from the authoritative
+source, never from memory or from the examples the reviewer happened to name.
+And treat "X is missing from this list" as "this list was never verified
+complete," not as "append X."
 
 ## Check
 
@@ -14,6 +15,10 @@ list" as "this list was never verified complete," not as "append X."
 - Prefer the covering rule to enumerated members: block the `/23`, don't list
   three of its sub-blocks. Prefer an allowlist of known-good over a
   hand-built denylist of known-bad.
+- A relationship modeled by more than one foreign key (both `A.b_id` and
+  `B.a_id`) has more than one valid shape. Enumerate the shapes from the
+  schema before asserting a single-direction equality; a one-way check
+  silently rejects the other-way-valid rows.
 - After an incompleteness finding, reconcile the *entire* list against its
   source before replying — the named item is the sample, not the defect.
 
@@ -40,3 +45,11 @@ round 3 found `AgentRun` missing from both. One reconciliation of the full
 entity list would have caught it in round 1. The same PR's config-surface
 inventory (redirect URI, SA key, Pub/Sub, HMAC kinds) leaked out over three
 rounds for the same reason.
+
+**Violation — ArchAstro/firstlanding#8910:** a residence check validated an
+org/sandbox pair with one equality (`org.sandbox_id == viewer.sandbox_id`) and
+rejected a valid pair — the schema models the relationship in *both* directions
+(`orgs.sandbox_id` and `developer_sandboxes.org_id`), and the production shape
+uses the second, which the one-directional check never considered. The two
+`belongs_to` edges are the source of truth for the valid shapes; a reviewer's
+P1 forced the second direction a round later.
