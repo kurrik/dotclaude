@@ -17,6 +17,9 @@ cheaper than defending it per round.
 - When a fix intentionally keeps a residual weakness (a discriminator that
   can still collide, a race accepted as harmless), name the residual and the
   reasoning in the fix commit — "accepted, not fixed" recorded explicitly.
+- Is the thing being declined an accepted *trade-off*, or a *defect* that
+  merely isn't reachable yet? The latter is a defer-and-fix, not a decline —
+  "currently unreachable" doesn't make a real defect withdraw.
 - When two reviewers demand opposite changes on the same lines, stop and
   escalate to the owner instead of applying either — applying each in turn
   ping-pongs the code at a round per swing.
@@ -33,6 +36,15 @@ round 1 would have cut 3+ rounds.
 **Violation — PR #317:** duplicate-hunk IDs got encounter-order suffixes;
 the next round flagged the renumbering residual. The author ultimately kept
 the suffixes *and documented the residual* — an outcome writable in round 1.
+
+**Violation — ArchAstro/firstlanding#8910:** a real latent defect (a cross-app
+developer viewer would raise on a scoped row) was declined across two review
+rounds as "unreachable in production" and softened to a comment rather than
+fixed. Documenting the decline did not settle it — an independent reviewer
+re-raised it as a fresh finding on the next commit, and it was then fixed in
+code. A defect declined on reachability is not an accepted risk; when the fix
+is small and makes the code correct in general — and especially when a second
+reviewer converges on it — fix it instead of re-defending the decline.
 
 **Done right — PR #340:** the refresh-token non-rotation decision entry made
 CodeRabbit withdraw its 30-day-replay finding as "already addressed by the
