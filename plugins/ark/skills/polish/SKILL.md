@@ -151,6 +151,7 @@ withholding file-edit tools. Retrieve every result with
    claude -p \
      "Review the full branch diff from <BASE> through HEAD. Run git diff -M <BASE>...HEAD, inspect the relevant files, and report only correctness, security, performance, or repository-convention defects. For every finding give severity, file:line, and a concrete failure scenario, and adversarially verify it before reporting. Do not modify files. Include one short checked line for areas that are clean." \
      --permission-mode dontAsk --no-session-persistence \
+     --allowedTools "Bash(git diff *)" \
      --tools Bash,Read,Grep,Glob
    ```
 
