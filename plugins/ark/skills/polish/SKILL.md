@@ -1,6 +1,6 @@
 ---
 name: polish
-description: Frontload the PR review cycle before pushing a branch. Runs up to three reviewers in parallel subagents (a Claude reviewer, Codex CLI review if installed, and a check against a layered review-principles corpus — general principles bundled with this skill, plus machine-level ~/.claude/review-principles and the repo's .claude/review-principles when present), triages and fixes their findings autonomously without expanding scope, commits each round with the feedback and justification in the message, and loops until findings are exhausted, nitty, or need a human. Use before /ark:pr, or whenever asked to polish a branch for review.
+description: Frontload the PR review cycle before pushing a branch. Runs up to three reviewers in parallel subagents (the current Claude, Codex, or Grok host's native reviewer, a preferred cross-agent CLI review if installed, and a check against a layered review-principles corpus — general principles bundled with this skill, plus machine-level ~/.claude/review-principles and the repo's .claude/review-principles when present), triages and fixes their findings autonomously without expanding scope, commits each round with the feedback and justification in the message, and loops until findings are exhausted, nitty, or need a human. Use before /ark:pr, or whenever asked to polish a branch for review.
 ---
 
 # ark:polish — frontload the review cycle
@@ -77,29 +77,62 @@ Do these in order — each depends on the one before it:
 
 ## Step 2 — Run the reviewers in parallel
 
-Up to three legs. Before launching, check availability: the Codex leg needs
-the `codex` CLI on PATH (`command -v codex`); the Claude and corpus legs are
-always available (the corpus's general layer ships with this skill). An
-unavailable leg is skipped with a one-line note in the report — that's a
-smaller panel, not a failure. Launch every available leg concurrently; do
-not run them serially.
+Up to three legs. First identify the current host from the active session —
+Claude Code, Codex, or Grok — **not** from which executables happen to be on
+`PATH`. Then select the native and external reviewers from this matrix:
 
-1. **Claude reviewer** (always available) — an Agent (general-purpose)
-   subagent that reviews the full branch diff (`git diff -M <BASE>...HEAD`)
-   as a rigorous code reviewer: correctness, security, performance, and
-   convention findings only; each finding needs severity, file:line, and a
-   concrete failure scenario; each must be adversarially self-verified before
-   reporting; clean areas get one "checked" line.
+| Current host | Native reviewer | Preferred external CLI | Fallback |
+|---|---|---|---|
+| Claude Code | Claude internal review via a general-purpose Agent | `codex review` | none |
+| Codex | Codex internal review via a general-purpose subagent | `claude -p` | none |
+| Grok | Grok internal review via `spawn_subagent` | `codex review` | `claude -p` |
 
-   Do NOT try `Skill(skill: "code-review")` — the built-in code-review skill
-   is `disable-model-invocation` and can only be launched by the human typing
-   `/code-review`. If the human has already run it this session AND its
+Never shell out to the current host's own CLI. That review is redundant with
+the native leg, and nested same-agent sessions can collide with the parent's
+app server, sandbox, or session state. Before launching, check only the CLI
+selected by the matrix: `command -v codex` from Claude Code; `command -v
+claude` from Codex; and `command -v codex` first from Grok, checking
+`command -v claude` only as Grok's fallback if Codex is absent or if the Codex
+leg later fails before producing a review. Grok must not launch both external
+CLIs together — Codex is its preferred second opinion, and Claude is a
+sequential failure fallback only. The native and corpus legs are always
+available (the corpus's general layer ships with this skill). An unavailable
+external leg is skipped with a one-line note in the report — that's a smaller
+panel, not a failure. Launch every initially selected leg concurrently; do not
+run them serially except for Grok's failure fallback.
+
+In Grok, launch each leg through `spawn_subagent` with `background: true`.
+Use `subagent_type: general-purpose` and `capability_mode: execute` for review
+legs: that mode permits reading, searching, and shell inspection while
+withholding file-edit tools. Retrieve every result with
+`get_command_or_subagent_output` after all legs have launched.
+
+1. **Native/internal reviewer** (always available) — run the current host's
+   internal review through its general-purpose subagent mechanism (Claude's
+   Agent tool in Claude Code; Codex's subagent delegation in Codex; Grok's
+   `spawn_subagent` in Grok). Have it review the full branch diff
+   (`git diff -M <BASE>...HEAD`) as a rigorous code reviewer: correctness,
+   security, performance, and convention findings only; each finding needs
+   severity, file:line, and a concrete failure scenario; each must be
+   adversarially self-verified before reporting; clean areas get one "checked"
+   line. Record this leg as `claude-native`, `codex-native`, or `grok-native`
+   according to the current host.
+
+   In Claude Code or Grok, do NOT try to invoke the host's built-in
+   `code-review` skill — it may be `disable-model-invocation` and reserved for
+   the human typing `/code-review`. Use the explicit native subagent review
+   above. If the human has already run a native review this session AND its
    report covers the current diff, fold that report into triage instead of
    spawning a duplicate reviewer. A report from before this round's fixes is
    stale — spawn a fresh reviewer; this check re-applies every round.
 
-2. **Codex reviewer** (if `codex` is installed) — an Agent (general-purpose)
-   subagent whose task is to run, from the repo root:
+2. **External CLI reviewer** (if the opposite CLI is installed) — launch it
+   inside a general-purpose native subagent so it runs concurrently with the
+   other legs and its failure stays isolated. Record the leg as `codex-cli`
+   or `claude-cli` according to the executable that actually ran.
+
+   **From Claude Code, or from Grok when Codex is available**, run from the
+   repo root:
 
    ```bash
    codex review --base <BASE>
@@ -107,14 +140,30 @@ not run them serially.
 
    No custom PROMPT argument: codex treats the scope flags (`--base`,
    `--uncommitted`, `--commit`) and custom instructions as mutually exclusive
-   modes — combining them is a usage error. The default review behavior is
-   what we want; severity filtering happens in triage, not in codex. Pass the
-   same `origin/`-prefixed BASE; if codex rejects the remote-ref form, retry
-   once with the short branch name and say so in the report.
+   modes — combining them is a usage error. Pass the same `origin/`-prefixed
+   BASE; if codex rejects the remote-ref form, retry once with the short branch
+   name and say so in the report.
 
-   Give the Bash call a 10-minute timeout — codex reviews take minutes. The
-   subagent returns the findings verbatim, plus a one-line note if codex
-   errored (auth, network) rather than papering over it.
+   **From Codex, or from Grok only when Codex is unavailable or its review leg
+   failed before producing findings**, run from the repo root:
+
+   ```bash
+   claude -p \
+     "Review the full branch diff from <BASE> through HEAD. Run git diff -M <BASE>...HEAD, inspect the relevant files, and report only correctness, security, performance, or repository-convention defects. For every finding give severity, file:line, and a concrete failure scenario, and adversarially verify it before reporting. Do not modify files. Include one short checked line for areas that are clean." \
+     --permission-mode dontAsk --no-session-persistence \
+     --allowedTools "Bash(git diff -M <BASE>...HEAD)" \
+     --tools Bash,Read,Grep,Glob
+   ```
+
+   The prompt is intentionally self-contained: do not ask Claude to invoke
+   `ark:polish`, `/code-review`, or another nested orchestration workflow.
+   Substitute the same `origin/`-prefixed BASE in both the prompt and
+   `--allowedTools`. Keep the Bash permission exact: broader patterns such as
+   `Bash(git diff *)` also allow write-capable options like `--output`.
+
+   Give either external CLI call a 10-minute timeout — reviews take minutes.
+   The subagent returns the findings verbatim, plus a one-line note if the CLI
+   errored (sandbox, auth, network, timeout) rather than papering over it.
 
 3. **Corpus reviewer** (always available) — the corpus is layered across up
    to three directories, most general first:
@@ -128,8 +177,8 @@ not run them serially.
    3. **Repo** — `.claude/review-principles/` at the repo root, if it exists
       (repo-specific rules, evidence, and overrides).
 
-   Spawn an Agent (general-purpose) subagent, passing it the absolute paths
-   of the layers that exist, instructed to:
+   Spawn a native general-purpose subagent, passing it the absolute paths of
+   the layers that exist, instructed to:
    - Read every principle file in each layer (skip each layer's
      `README.md`). Files with the same name in more than one layer are the
      *same principle*: read them together, with the deeper layer
@@ -153,6 +202,12 @@ trailer never claims a reviewer that didn't run. If no leg produces a review,
 stop and tell the human — zero reviewers isn't a polish loop. If only one leg
 ran (by availability or by failure), proceed, but say prominently in the
 report that the panel was a single reviewer.
+
+On Grok only, if the preferred `codex-cli` leg fails before returning a review,
+launch one `claude-cli` fallback when Claude is installed. Record the Codex
+failure, but list only `claude-cli` as the external reviewer that actually ran.
+Do not fall back after Codex returned findings, even if those findings are
+empty; an empty successful review is still a completed second opinion.
 
 ## Step 3 — Triage and fix
 
@@ -194,7 +249,7 @@ polish: address round N review feedback
 - <finding, one line> — <what was done and why>
 - <finding declined> — declined: <one-line justification>
 
-Reviewers: claude-reviewer, codex, review-principles
+Reviewers: codex-native, claude-cli, review-principles
 ```
 
 List only the legs that actually ran (see the failure rule in Step 2).
