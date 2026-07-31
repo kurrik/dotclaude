@@ -151,13 +151,15 @@ withholding file-edit tools. Retrieve every result with
    claude -p \
      "Review the full branch diff from <BASE> through HEAD. Run git diff -M <BASE>...HEAD, inspect the relevant files, and report only correctness, security, performance, or repository-convention defects. For every finding give severity, file:line, and a concrete failure scenario, and adversarially verify it before reporting. Do not modify files. Include one short checked line for areas that are clean." \
      --permission-mode dontAsk --no-session-persistence \
-     --allowedTools "Bash(git diff *)" \
+     --allowedTools "Bash(git diff -M <BASE>...HEAD)" \
      --tools Bash,Read,Grep,Glob
    ```
 
    The prompt is intentionally self-contained: do not ask Claude to invoke
    `ark:polish`, `/code-review`, or another nested orchestration workflow.
-   Substitute the same `origin/`-prefixed BASE used by the other legs.
+   Substitute the same `origin/`-prefixed BASE in both the prompt and
+   `--allowedTools`. Keep the Bash permission exact: broader patterns such as
+   `Bash(git diff *)` also allow write-capable options like `--output`.
 
    Give either external CLI call a 10-minute timeout — reviews take minutes.
    The subagent returns the findings verbatim, plus a one-line note if the CLI
