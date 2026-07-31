@@ -148,9 +148,10 @@ withholding file-edit tools. Retrieve every result with
    failed before producing findings**, run from the repo root:
 
    ```bash
-   claude -p --permission-mode dontAsk --no-session-persistence \
-     --tools Bash,Read,Grep,Glob \
-     "Review the full branch diff from <BASE> through HEAD. Run git diff -M <BASE>...HEAD, inspect the relevant files, and report only correctness, security, performance, or repository-convention defects. For every finding give severity, file:line, and a concrete failure scenario, and adversarially verify it before reporting. Do not modify files. Include one short checked line for areas that are clean."
+   claude -p \
+     "Review the full branch diff from <BASE> through HEAD. Run git diff -M <BASE>...HEAD, inspect the relevant files, and report only correctness, security, performance, or repository-convention defects. For every finding give severity, file:line, and a concrete failure scenario, and adversarially verify it before reporting. Do not modify files. Include one short checked line for areas that are clean." \
+     --permission-mode dontAsk --no-session-persistence \
+     --tools Bash,Read,Grep,Glob
    ```
 
    The prompt is intentionally self-contained: do not ask Claude to invoke
