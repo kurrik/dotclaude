@@ -2,7 +2,7 @@
 
 [![Validate marketplace](https://github.com/kurrik/dotclaude/actions/workflows/validate.yml/badge.svg)](https://github.com/kurrik/dotclaude/actions/workflows/validate.yml)
 
-A personal [Claude Code plugin marketplace](https://docs.claude.com/en/docs/claude-code/plugins) — a single Git repo holding skills, shared across every Claude Code instance I use. The same repo also works as an [OpenAI Codex plugin marketplace](https://developers.openai.com/codex/plugins) — see [Using with Codex](#using-with-codex).
+A personal [Claude Code plugin marketplace](https://docs.claude.com/en/docs/claude-code/plugins) — a single Git repo holding skills shared across Claude Code, [OpenAI Codex](https://developers.openai.com/codex/plugins), and Grok Build. See [Using with Codex](#using-with-codex) and [Using with Grok](#using-with-grok).
 
 ## Quick start
 
@@ -22,19 +22,26 @@ codex plugin marketplace add kurrik/dotclaude
 codex plugin add ark@dotclaude
 ```
 
+**Grok Build** — add the same marketplace and install the plugin:
+
+```
+grok plugin marketplace add kurrik/dotclaude
+grok plugin install ark --trust
+```
+
 ## What's in here
 
 | Plugin | Provides | Invoke as |
 | --- | --- | --- |
-| **`ark`** | Git & GitHub workflow skills | Claude Code: `/ark:pr`, `/ark:review`, `/ark:reset-worktree`, `/ark:polish`, `/ark:improve-polish` · Codex: the same names via `$` mention (e.g. `$ark:pr`) or `/skills` |
+| **`ark`** | Git & GitHub workflow skills | Claude Code and Grok: `/ark:pr`, `/ark:review`, `/ark:reset-worktree`, `/ark:polish`, `/ark:improve-polish` · Codex: the same names via `$` mention (e.g. `$ark:pr`) or `/skills` |
 
-- **`/ark:polish`** — frontload the PR review cycle before pushing: run up to three reviewers in parallel subagents (a Claude reviewer, [Codex CLI](https://github.com/openai/codex) review if installed, and a check against a layered review-principles corpus), triage and fix findings without expanding scope, commit each round with the audit trail in the message, and loop until findings are exhausted, nitty, or need a human. Designed to run before `/ark:pr`. The corpus has three layers: general principles bundled with the skill ([`plugins/ark/skills/polish/principles/`](plugins/ark/skills/polish/principles/)), machine-specific rules in `~/.claude/review-principles/`, and repo-specific rules in the repo's `.claude/review-principles/` — same-named files are the same principle, with the more specific layer winning on conflict.
+- **`/ark:polish`** — frontload the PR review cycle before pushing: run up to three reviewers in parallel subagents (the current host's native reviewer, a preferred cross-agent CLI review if installed, and a check against a layered review-principles corpus), triage and fix findings without expanding scope, commit each round with the audit trail in the message, and loop until findings are exhausted, nitty, or need a human. Claude Code pairs its native review with [Codex CLI](https://github.com/openai/codex); Codex pairs its native review with Claude CLI; Grok pairs its native review with Codex CLI, falling back to Claude CLI only when Codex is unavailable or fails before reviewing. This avoids redundant nested same-agent sessions. Designed to run before `/ark:pr`. The corpus has three layers: general principles bundled with the skill ([`plugins/ark/skills/polish/principles/`](plugins/ark/skills/polish/principles/)), machine-specific rules in `~/.claude/review-principles/`, and repo-specific rules in the repo's `.claude/review-principles/` — same-named files are the same principle, with the more specific layer winning on conflict.
 - **`/ark:improve-polish`** — upstream review-cycle lessons from the current session back into the bundled corpus: diagnose this session's polish rounds, PR review feedback, and human corrections for generalizable lessons (errors and feedback to anticipate, better fix patterns), draft principle updates with real positive and negative examples, and — after you approve the draft — open a PR against this repo entirely through `gh api`, so it works from any machine that installed the marketplace with no local checkout of `kurrik/dotclaude`.
 - **`/ark:pr`** — stage, commit, push the current branch, and open a GitHub PR with an auto-generated description that follows the repo's PR template. Runs `/ark:polish` on the branch before pushing unless you explicitly say to skip it.
 - **`/ark:review`** — fetch PR review comments, address them, push fixes, and reply to each thread through a single pending review. Runs `/ark:polish` on the fix commits before pushing unless you explicitly say to skip it.
 - **`/ark:reset-worktree`** — reset the current git worktree's branch back to the base branch, or the primary clone back to a clean `main` checkout. Asks before discarding uncommitted work.
 
-> **Requirements:** `/ark:pr` and `/ark:review` use the [GitHub CLI (`gh`)](https://cli.github.com) signed in to your account. No `gh` extensions needed — `/ark:review` talks to GitHub's GraphQL API directly via `gh api`. `/ark:reset-worktree` needs only `git`. `/ark:polish` needs only `git`; its Codex reviewer leg activates automatically when the `codex` CLI is present, and its principles leg always runs — general principles ship with the skill, augmented by `~/.claude/review-principles/` and the repo's `.claude/review-principles/` when those exist. `/ark:improve-polish` needs `gh` signed in to an account that can push to (or fork) `kurrik/dotclaude`.
+> **Requirements:** `/ark:pr` and `/ark:review` use the [GitHub CLI (`gh`)](https://cli.github.com) signed in to your account. No `gh` extensions needed — `/ark:review` talks to GitHub's GraphQL API directly via `gh api`. `/ark:reset-worktree` needs only `git`. `/ark:polish` needs only `git` for its always-on native and principles legs; its optional cross-agent leg uses `codex` from Claude Code, `claude` from Codex, and prefers `codex` with a `claude` fallback from Grok. General principles ship with the skill, augmented by `~/.claude/review-principles/` and the repo's `.claude/review-principles/` when those exist. `/ark:improve-polish` needs `gh` signed in to an account that can push to (or fork) `kurrik/dotclaude`.
 
 ### `/ark:reset-worktree`
 
@@ -69,8 +76,8 @@ The skill wrapper exists so the script is distributed with the plugin and so the
 
 This trips people up, so to be explicit:
 
-- The **marketplace name** (`dotclaude`) only appears when installing — `/plugin install <plugin>@dotclaude` (Claude Code) or `codex plugin add <plugin>@dotclaude` (Codex) — and as the key in settings. It does **not** prefix anything.
-- The **plugin name** is the prefix. A skill `foo` in the `ark` plugin is `ark:foo` in both tools — `/ark:foo` as a Claude Code slash command, `$ark:foo` as a Codex mention.
+- The **marketplace name** (`dotclaude`) only appears when configuring or installing — `/plugin install <plugin>@dotclaude` (Claude Code), `codex plugin add <plugin>@dotclaude` (Codex), or `grok plugin marketplace add ...` followed by `grok plugin install <plugin>` (Grok) — and as the key in settings. It does **not** prefix anything.
+- The **plugin name** is the prefix. A skill `foo` in the `ark` plugin is `ark:foo` in all three tools — `/ark:foo` in Claude Code and Grok, `$ark:foo` as a Codex mention.
 
 So when you add a skill, the directory name determines the suffix and the plugin name determines the prefix:
 
@@ -150,10 +157,26 @@ codex plugin marketplace upgrade dotclaude
 codex plugin add ark@dotclaude
 ```
 
-Caveats:
+## Using with Grok
 
-- `ark:polish` is written around Claude Code's parallel subagents; Codex will follow it inline without that parallelism, and its "Codex reviewer" leg (which shells out to `codex review`) is redundant when you're already inside Codex.
-- Claude-only frontmatter (`allowed-tools`, `argument-hint`) is ignored by Codex — invocations work, you just don't get the pre-approved tool list or argument autocomplete.
+Grok accepts this repo's `.claude-plugin/marketplace.json` and plugin manifest as compatibility locations and discovers the same `skills/` directories. No Grok-specific copy of the plugin is needed.
+
+```
+grok plugin marketplace add kurrik/dotclaude
+grok plugin install ark --trust
+```
+
+The skills surface under their plugin-qualified slash names, including `/ark:polish`. To pick up a new version later:
+
+```
+grok plugin marketplace update dotclaude
+grok plugin update ark
+```
+
+Cross-agent caveats:
+
+- `ark:polish` uses the active host's native subagents and never shells out to that same host: Claude Code runs native Claude + `codex review`; Codex runs native Codex + `claude -p`; Grok runs native Grok + `codex review`, using `claude -p` only when Codex is unavailable or fails before reviewing. If no selected external CLI is installed, polish proceeds with its native and principles legs and reports the skip.
+- Claude frontmatter such as `allowed-tools` and `argument-hint` is ignored by Codex but supported by Grok. Codex invocations still work; they simply lack the pre-approved tool list and argument autocomplete.
 
 ## Using `ark` in a cloud environment
 
@@ -190,15 +213,15 @@ Because `/ark:review` uses `gh api` directly (no `gh` extensions), that's the wh
 
 ### Why everything is a skill (not a slash command)
 
-Everything in this repo ships as a `skills/<name>/SKILL.md` directory because **both** Claude Code and Codex discover skills natively. In Claude Code a skill is user-invocable as `/<plugin>:<name>` (with `argument-hint`, `allowed-tools`, and `disable-model-invocation` frontmatter all supported) *and* model-invocable from its `description` — so a skill loses nothing compared to a `commands/*.md` slash command.
+Everything in this repo ships as a `skills/<name>/SKILL.md` directory because Claude Code, Codex, and Grok all discover skills natively. In Claude Code and Grok a skill is user-invocable as `/<plugin>:<name>` (with `argument-hint`, `allowed-tools`, and `disable-model-invocation` frontmatter all supported) *and* model-invocable from its `description` — so a skill loses nothing compared to a `commands/*.md` slash command.
 
 Claude-only `commands/*.md` files, by contrast, only reach Codex through its automatic command→skill migration, which is unreliable: it silently skips any command file over ~4 KB or containing `$ARGUMENTS`, and the migrated names come out as `<plugin>:source-command-<name>`.
 
-To keep a skill portable across both tools:
+To keep a skill portable across all three tools:
 
 - Reference bundled files relative to the skill directory ("`scripts/foo.sh` inside this skill's directory") — `${CLAUDE_PLUGIN_ROOT}` and `${CLAUDE_SKILL_DIR}` only expand in Claude Code.
-- Don't rely on `$ARGUMENTS` substitution (Claude-only); phrase argument handling in prose. Claude Code appends unmatched arguments as `ARGUMENTS: <value>`, and in Codex the user's arguments follow the `$` mention in the prompt anyway.
-- Claude-only frontmatter (`allowed-tools`, `argument-hint`, `disable-model-invocation`) is ignored by Codex, so it's safe to keep.
+- Don't rely on `$ARGUMENTS` substitution (Claude-only); phrase argument handling in prose. Claude Code appends unmatched arguments as `ARGUMENTS: <value>`, Codex arguments follow the `$` mention, and Grok arguments follow the slash command.
+- Claude frontmatter (`allowed-tools`, `argument-hint`, `disable-model-invocation`) is supported by Grok and ignored by Codex, so it's safe to keep.
 
 ## Versioning
 
