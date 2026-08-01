@@ -5,18 +5,41 @@ name: Bump plugin versions
 # the change (Claude Code only re-installs a plugin when its resolved version
 # differs from the cached one).
 #
-# The bump lands through a PR that this workflow opens and immediately
-# squash-merges: the main ruleset requires changes to go through a pull
-# request, and on user-owned repos GitHub refuses to add the Actions app as a
-# ruleset bypass actor ("must be part of the ruleset source or owner
-# organization"), so a direct push from this workflow can never succeed. The
-# immediate self-merge works because the ruleset requires no approvals or
-# status checks; if either is ever added, this merge step will start failing
-# and the workflow will need a different actor (e.g. a deploy key) instead.
+# The bump is pushed directly to main using a deploy key. The default
+# GITHUB_TOKEN cannot land the bump on a user-owned repo with a PR-required
+# ruleset:
+#   - a direct push fails because GitHub refuses to add the Actions app as a
+#     ruleset bypass actor ("must be part of the ruleset source or owner
+#     organization");
+#   - opening a bump PR and self-merging fails because "Allow GitHub Actions
+#     to create and approve pull requests" is disabled in the repo's Actions
+#     settings.
+# A deploy key with write access, added to the main ruleset's bypass list
+# (bypass actor role "Deploy keys"), is the supported way around both.
 #
-# Loop safety: pushes and merges made with the default GITHUB_TOKEN do not
-# trigger new workflow runs, and a plugin whose version already changed in the
-# same push (i.e. the PR bumped it manually) is skipped.
+# One-time setup:
+#   1. ssh-keygen -t ed25519 -N '' -C 'bump-plugin-versions deploy key' -f deploy-key
+#   2. Settings -> Deploy keys -> Add deploy key: paste deploy-key.pub and
+#      check "Allow write access"
+#   3. Settings -> Secrets and variables -> Actions -> New repository secret:
+#      name DEPLOY_KEY, value = contents of the private key file "deploy-key"
+#   4. Settings -> Rules -> Rulesets -> (main ruleset) -> Bypass list ->
+#      add "Deploy keys"
+#   5. Delete the local keypair files.
+#
+# Loop safety: unlike GITHUB_TOKEN pushes, deploy-key pushes DO trigger
+# workflow runs, so the bump commit re-triggers this workflow once. That
+# second run must no-op, and it does: a plugin whose version already changed
+# in the pushed range — including this workflow's own bump commit — is
+# skipped. Do not remove that guard; it is what terminates the loop.
+#
+# Race safety: if main advances while this job runs, the push retry rebases
+# AND re-runs the bump pass before pushing again. The re-run matters: the
+# run triggered by our own push can displace the queued run for the
+# intervening push (a concurrency group keeps only one pending run), so this
+# run must pick up the intervening commits itself. The bump pass is
+# idempotent — already-bumped plugins are skipped — which makes the re-run
+# safe.
 
 on:
   push:
@@ -29,8 +52,7 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
 
 jobs:
   bump:
@@ -39,6 +61,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
+          ssh-key: ${{ secrets.DEPLOY_KEY }}
 
       - name: Bump versions for changed plugins
         run: |
@@ -52,49 +75,67 @@ jobs:
             BEFORE="${AFTER}~1"
           fi
 
-          changed=0
-          for manifest in plugins/*/.claude-plugin/plugin.json; do
-            plugin_dir=$(dirname "$(dirname "$manifest")")
+          # Bump every plugin whose content changed between BEFORE and HEAD
+          # but whose version did not. Idempotent: a plugin whose version
+          # already differs from BEFORE (bumped by a human or an earlier pass
+          # of this loop) is skipped, so it is safe to re-run after a rebase
+          # pulls in commits from intervening pushes.
+          bump_plugins() {
+            changed=0
+            for manifest in plugins/*/.claude-plugin/plugin.json; do
+              plugin_dir=$(dirname "$(dirname "$manifest")")
 
-            if git diff --quiet "$BEFORE" "$AFTER" -- "$plugin_dir"; then
-              continue
-            fi
+              if git diff --quiet "$BEFORE" HEAD -- "$plugin_dir"; then
+                continue
+              fi
 
-            version=$(jq -r '.version // empty' "$manifest")
-            if [ -z "$version" ]; then
-              echo "$plugin_dir: no version field (every commit is a new version), skipping"
-              continue
-            fi
+              version=$(jq -r '.version // empty' "$manifest")
+              if [ -z "$version" ]; then
+                echo "$plugin_dir: no version field (every commit is a new version), skipping"
+                continue
+              fi
 
-            old_version=$(git show "$BEFORE:$manifest" 2>/dev/null | jq -r '.version // empty' || true)
-            if [ -n "$old_version" ] && [ "$old_version" != "$version" ]; then
-              echo "$plugin_dir: version already bumped in this push ($old_version -> $version), skipping"
-              continue
-            fi
+              old_version=$(git show "$BEFORE:$manifest" 2>/dev/null | jq -r '.version // empty' || true)
+              if [ -n "$old_version" ] && [ "$old_version" != "$version" ]; then
+                echo "$plugin_dir: version already bumped since ${BEFORE} ($old_version -> $version), skipping"
+                continue
+              fi
 
-            new_version=$(echo "$version" | awk -F. '{printf "%d.%d.%d", $1, $2, $3 + 1}')
-            jq --arg v "$new_version" '.version = $v' "$manifest" > "$manifest.tmp"
-            mv "$manifest.tmp" "$manifest"
-            echo "$plugin_dir: $version -> $new_version"
-            changed=1
-          done
+              new_version=$(echo "$version" | awk -F. '{printf "%d.%d.%d", $1, $2, $3 + 1}')
+              jq --arg v "$new_version" '.version = $v' "$manifest" > "$manifest.tmp"
+              mv "$manifest.tmp" "$manifest"
+              echo "$plugin_dir: $version -> $new_version"
+              changed=1
+            done
+          }
 
-          if [ "$changed" -eq 1 ]; then
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            branch="bump-plugin-versions/${{ github.run_id }}"
-            git checkout -b "$branch"
-            git add plugins/*/.claude-plugin/plugin.json
-            git commit -m "chore: bump plugin versions after content change"
-            git push -u origin "$branch"
-            gh pr create \
-              --base main \
-              --head "$branch" \
-              --title "chore: bump plugin versions after content change" \
-              --body "Automated patch bump for plugins changed in ${AFTER}."
-            gh pr merge "$branch" --squash --delete-branch
-          else
+          bump_plugins
+          if [ "$changed" -eq 0 ]; then
             echo "No version bumps needed."
+            exit 0
           fi
-        env:
-          GH_TOKEN: ${{ github.token }}
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add plugins/*/.claude-plugin/plugin.json
+          git commit -m "chore: bump plugin versions after content change"
+
+          # If main advances while this job runs, rebase onto it and re-run
+          # the bump pass so the intervening push's plugins are bumped here
+          # too — the queued run for that push may be displaced by the run
+          # our own push triggers (see "Race safety" above).
+          for attempt in 1 2 3; do
+            if git push origin HEAD:main; then
+              exit 0
+            fi
+            echo "Push rejected (main advanced?); rebasing and re-checking (attempt ${attempt}/3)"
+            git fetch origin main
+            git rebase origin/main
+            bump_plugins
+            if ! git diff --quiet; then
+              git add plugins/*/.claude-plugin/plugin.json
+              git commit --amend --no-edit
+            fi
+          done
+          echo "Failed to push after 3 attempts" >&2
+          exit 1
