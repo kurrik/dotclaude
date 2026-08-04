@@ -16,11 +16,17 @@ complete," not as "append X."
   three of its sub-blocks. Prefer an allowlist of known-good over a
   hand-built denylist of known-bad.
 - A relationship modeled by more than one foreign key (both `A.b_id` and
-  `B.a_id`) has more than one valid shape. Enumerate the shapes from the
-  schema before asserting a single-direction equality; a one-way check
-  silently rejects the other-way-valid rows.
+  `B.a_id`) *may* have more than one valid shape — derive the valid shapes
+  from the schema's constraints and model validations, not from the keys'
+  mere existence. A one-way equality silently rejects other-way-valid rows;
+  assuming both directions are valid admits inconsistent pairs.
 - After an incompleteness finding, reconcile the *entire* list against its
   source before replying — the named item is the sample, not the defect.
+- A named schema object (index, constraint, view) may be dropped and
+  recreated later under the same name. Its defining statement is the *last*
+  migration to touch the name — or the live schema — never the first grep
+  hit. Before refuting a reviewer's claim about a schema's shape, find the
+  latest definition.
 
 ## From the history
 
@@ -45,6 +51,16 @@ round 3 found `AgentRun` missing from both. One reconciliation of the full
 entity list would have caught it in round 1. The same PR's config-surface
 inventory (redirect URI, SA key, Pub/Sub, HMAC kinds) leaked out over three
 rounds for the same reason.
+
+**Violation — ArchAstro/firstlanding#9282:** a bot reviewer claimed a unique
+index included `org_id`; the author "corrected" it by citing the migration
+that *created* the index name — but a later migration had dropped and
+recreated the index under the same name with app/sandbox/org scoping. The
+wrong "correction" shipped a mis-scoped availability precheck, a code comment
+asserting an "app-wide namespace," and a test titled for the false invariant;
+the reviewer returned with the later migration's citation and the whole set
+had to be corrected a round later. One check of the *latest* migration
+touching the index name would have prevented the round.
 
 **Violation — ArchAstro/firstlanding#8910:** a residence check validated an
 org/sandbox pair with one equality (`org.sandbox_id == viewer.sandbox_id`) and

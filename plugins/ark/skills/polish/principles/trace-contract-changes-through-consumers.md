@@ -18,6 +18,13 @@ the new contract has been traced end-to-end.
   the reviewer named.
 - Wrote state whose effect fires later (an armed collapse, a queued token)?
   Trace what the *recorded* state does, not just what renders now.
+- Added a response field? Check each consumer's parser mode. Stripping
+  parsers (zod's default object behavior) silently drop the field — the
+  change is invisible, and deliver-once data is unrecoverable. Rejecting
+  parsers (serde's `deny_unknown_fields`, closed generated clients) fail the
+  whole response — the addition is a breaking change. The failure modes need
+  different tests, but the remedy is the same: ship the client schema and
+  display path in the same change as the server field.
 
 ## From the history
 
@@ -35,6 +42,15 @@ resolving, so round 2 found the composer clearing the draft and flashing
 **Violation — PR #340:** the round-2 fix bound `client_id` to the auth code;
 round 3 found the binding "stops one hop short… dropped when the refresh
 token is minted." The full chain was visible when the binding was added.
+
+**Violation — ArchAstro/firstlanding#9284:** an install endpoint gained a
+one-time credential in its response (`webhook.url` + `signing_secret`,
+delivered exactly once with no-store). The TypeScript SDK's response schema
+was not updated: zod strips unknown keys, so the shipped CLI parsed the
+response, silently discarded the only copy of the secret, and then suggested
+an invocation path the new resource rejects. A reviewer's P1 caught it; the
+server-side change alone made the feature unusable through the primary
+client.
 
 **Violation — PR #341:** a header tap while composing was accepted as
 harmless because it "can't change what's on screen"; round 5 found it still
