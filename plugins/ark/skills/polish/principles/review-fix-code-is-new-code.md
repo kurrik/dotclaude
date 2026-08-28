@@ -4,7 +4,9 @@ Fixes written while addressing feedback skip the scrutiny the original code
 got — and they're written under exactly the conditions that produced the
 original bug. Across the history this corpus was mined from, the round-N fix
 being the round-N+1 bug is one of the most reliable patterns. Before pushing
-a fix commit, review its diff as skeptically as a stranger's.
+a fix commit, review its diff as skeptically as a stranger's. The pattern is
+not limited to code: a fix to a design or specification introduces new
+mechanisms on the same terms, and draws the same next round.
 
 ## Check
 
@@ -17,6 +19,10 @@ a fix commit, review its diff as skeptically as a stranger's.
 - Did the fix turn a previously-latent or speculative concern into a real
   break (a field that was harmless before now overflows; an env var that was
   unused now collides)?
+- Did the fix introduce a new *mechanism* — a cache exception, a grace window,
+  an automated cleanup? State its adversarial case (who can trigger it on
+  purpose) and its multiplicity case (what it does when there are N, not one)
+  in the same change. Those two questions are what the next round asks.
 - Does the regression test actually exercise the branch the finding was
   about, or does it dodge it?
 
@@ -44,3 +50,14 @@ missing-port bug round 1 had flagged.
 **Violation — PR #362:** the round-3 permanence gate compared
 `readyState === CLOSED` on a test fake that had neither field — vacuously
 true, and untestable with the existing fake.
+
+**Violation — a17k/a17k#421:** three consecutive rounds of an auth design each
+broke on the mechanism the previous round's fix introduced. Round 8's
+idempotent refresh-replay grace window was unimplementable — the row stores
+only a hash, which cannot reproduce the successor's bearer value. Round 9's
+last-known-good JWKS cache kept a synchronous refresh for an unseen `kid`,
+which round 10 found lets an attacker vary `kid` on a public endpoint to force
+per-request issuer fetches, reopening the dependency the cache removed. Round
+10's automated retirement of share-derived grants ignored that shares are
+per-object rows, so un-sharing one object would revoke admission held through
+every other share.
