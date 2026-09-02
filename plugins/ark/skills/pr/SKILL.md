@@ -17,15 +17,20 @@ Do the following steps in order. If any step fails, stop and report the error cl
    subagent reviews, so it is offered only when the scope justifies it, and
    only once.
 
-   First, before anything leaves the machine, scan the whole branch range
-   for secret-shaped content — a credential that is pushed and then deleted
-   is still in the remote history, so this check has to run before step 4,
-   not after it:
+   First, before anything leaves the machine, scan **every commit** in the
+   branch range for secret-shaped content — a push publishes the history,
+   not just the final tree, so a credential committed and then deleted two
+   commits later is still exposed, and an endpoint diff (`<base>...HEAD`)
+   would never show it. Walk the patches:
 
    ```bash
-   git diff --name-only <base>...HEAD | grep -Ei '(^|/)\.env|\.tfvars$|secret|credential|\.pem$|\.key$|id_(rsa|ed25519)'
-   git diff <base>...HEAD | grep -Ein "^\+.*(-----BEGIN|AKIA[0-9A-Z]{16}|ghp_[A-Za-z0-9]{20,}|xox[bp]-|(api[_-]?key|secret|token|password)[\"']?\s*[:=]\s*[\"'][^\"']{8,})"
+   git log --format= --name-only <base>..HEAD | sort -u | grep -Ei '(^|/)\.env|\.tfvars$|secret|credential|\.pem$|\.key$|id_(rsa|ed25519)'
+   git log -p --format='commit %h' <base>..HEAD | grep -Ein "^(commit |\+.*(-----BEGIN|AKIA[0-9A-Z]{16}|ghp_[A-Za-z0-9]{20,}|xox[bp]-|(api[_-]?key|secret|token|password)[\"']?\s*[:=]\s*[\"'][^\"']{8,}))" | grep -B1 -v '^[0-9]*:commit '
    ```
+
+   The first command lists every path any commit touched; the second
+   prints matching added lines with the commit they came from (the
+   `commit` marker lines are kept only as context).
 
    Any hit is a hard stop: do not push; show me the lines and ask. If the
    commit holding it is already on the remote (`git branch -r --contains
@@ -40,16 +45,20 @@ Do the following steps in order. If any step fails, stop and report the error cl
    - I explicitly asked for it ("with polish", "polish first", "quick
      polish") → run it, in the mode I named (quick means `--quick`).
    - Read the **tip state** `ark:polish` records (defined in its "When this
-     runs" section): this session's polish report for `HEAD` if a run ended
-     on it, else the `Mode:` / `Verdict:` trailers of `HEAD` when `HEAD` is
-     a `polish:` commit inside `<base>..HEAD`. `Verdict: ready` → covered;
-     nothing to offer, mention it (and `Mode: quick`, if so) in the
-     summary. `Verdict: not-ready` or `pending`, or a report that ended
-     blocked or round-capped → the tip is *not* ready: stop and ask me
-     before pushing, exactly as if this invocation had launched polish. No
-     record → `HEAD` is unreviewed; go on to measure it. Never infer
-     coverage from a polish commit that is not `HEAD` — commits after it
-     are unreviewed by definition.
+     runs" section): this session's polish report if a run ended on `HEAD`
+     without committing, else the `Mode:` / `Verdict:` trailers of the
+     newest `polish:` commit in `<base>..HEAD`, else none. The verdict is
+     the branch's until a later run replaces it; coverage requires that
+     commit to be `HEAD`:
+     - `not-ready` or `pending`, wherever it sits on the branch, or a
+       report that ended blocked or round-capped → the branch is *not*
+       ready: a follow-up commit does not resolve a parked finding. Stop
+       and ask me before pushing, naming what was parked; "push anyway" is
+       my override, and a new polish run is the other way to clear it.
+     - `ready` at `HEAD` → covered; nothing to offer, mention it (and
+       `Mode: quick`, if so) in the summary.
+     - `ready` with commits after it, or no record → the commits after the
+       record (or the whole branch) are unreviewed; go on to measure them.
    - Otherwise measure what no reviewer has seen. Take the whole branch
      (`git diff --stat <base>...HEAD`), or only the commits after the last
      `polish:` commit *on this branch* if it has one — the lookup must be

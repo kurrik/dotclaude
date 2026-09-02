@@ -1,7 +1,7 @@
 ---
 name: polish
 argument-hint: "[--quick]"
-description: Frontload the PR review cycle before pushing a branch. Runs up to three reviewers in parallel subagents (the current Claude, Codex, or Grok host's native reviewer, a preferred cross-agent CLI review if installed, and a check against a layered review-principles corpus — general principles bundled with this skill, plus machine-level ~/.claude/review-principles and the repo's .claude/review-principles when present), reads the branch as a whole for structural fixes before patching individual findings, triages and fixes autonomously without expanding scope, commits each round with the feedback and justification in the message, and stops after at most two rounds; --quick runs a single round with the native and corpus legs only. Costly — run it only when the human invokes /ark:polish, or accepts the one-time offer ark:pr / ark:review makes for a large unreviewed diff. Never run it unprompted.
+description: Frontload the PR review cycle before pushing a branch. Runs up to three reviewers in parallel subagents (the current Claude, Codex, or Grok host's native reviewer, a preferred cross-agent CLI review if installed, and a check against a layered review-principles corpus — general principles bundled with this skill, plus machine-level ~/.claude/review-principles and the repo's .claude/review-principles when present), reads the branch as a whole for structural fixes before patching individual findings, triages and fixes autonomously without expanding scope, commits each round with the feedback and justification in the message, and stops after at most two rounds; --quick runs a single round with the native and corpus legs only. Costly — run it only when the human invokes /ark:polish, or accepts the one-time offer ark:pr makes for a large or sensitive unreviewed diff, or the one ark:review makes when its fixes reshaped the PR. Never run it unprompted.
 ---
 
 # ark:polish — frontload the review cycle
@@ -16,7 +16,8 @@ are not free: every round is several full-diff subagent reviews plus a triage.
 Polish is **opt-in per branch**, not a step on every PR:
 
 - The human invoked `/ark:polish` (or `$ark:polish`), or
-- `ark:pr` / `ark:review` sized the unreviewed diff, offered a single polish
+- `ark:pr` sized the unreviewed diff (large, or in a sensitive area) or
+  `ark:review` found its fixes had reshaped the PR, offered a single polish
   pass, and the human accepted.
 
 Never start polish on your own judgment, and never repeat work already
@@ -26,21 +27,30 @@ record — the **tip state** — never from a memory of "we polished this":
 - **The tip** is `HEAD` *after* Step 1 has committed any dirty work.
   Uncommitted changes mean there is no covered tip yet, so this check runs
   after Step 1 item 3, never before it.
-- **The state** is the `Mode:` and `Verdict:` trailers of `HEAD` when
-  `HEAD` is a `polish:` commit on this branch (subject starts `polish:`
-  and `HEAD` lies in `<BASE>..HEAD`); else this session's report for
-  `HEAD`, if a run ended on it without committing; else *none*. Step 6
-  writes the trailers; `ark:pr` reads the same record, so both skills
-  answer "is this tip covered?" from one source.
-- `Verdict: ready` + `Mode: full` → covered. Say so and stop.
-- `Verdict: ready` + `Mode: quick` → covered but unverified. An explicit
+- **The record** is the *last* polish run on the branch: this session's
+  report if a run ended on `HEAD` without committing, else the `Mode:` and
+  `Verdict:` trailers of the newest `polish:` commit in `<BASE>..HEAD`
+  (`git log --grep='^polish:' -1 --format=%H <BASE>..HEAD`), else *none*.
+  Step 6 writes the trailers; `ark:pr` reads the same record, so both
+  skills answer from one source.
+- **The verdict belongs to the branch; coverage belongs to the tip.** A
+  verdict stays in force until a later polish run replaces it or the human
+  overrides it — commits added after the record do not clear it. Coverage
+  holds only when the record's commit *is* `HEAD`: anything after it is
+  unreviewed by definition.
+- `ready` at `HEAD`, `Mode: full` → covered. Say so and stop.
+- `ready` at `HEAD`, `Mode: quick` → covered but unverified. An explicit
   full invocation upgrades it (see **Modes**) instead of starting over; a
   second quick invocation stops.
-- `Verdict: not-ready` or `pending` → the run ended blocked or
-  round-capped (or never reached its verdict). The branch needs the human
-  before another round is worth running: say what was parked and stop,
-  unless the human says to proceed anyway.
-- *none* → nothing is covered; run normally over the whole branch diff.
+- `ready` with commits after it, or *none* → not covered; run normally
+  over the whole branch diff.
+- `not-ready` or `pending` at `HEAD` → the run ended blocked or
+  round-capped (or never reached its verdict). Say what was parked and
+  stop, unless the human says to proceed anyway.
+- `not-ready` or `pending` with commits after it → the human has moved on
+  since the parked round; an explicit invocation is the go-ahead. Run
+  normally, and carry the parked items into this run's triage so they are
+  resolved or re-parked rather than forgotten; the new verdict supersedes.
 
 ## Modes
 
@@ -66,8 +76,11 @@ a blocked run ready.
 quick run's `ready` does not repeat round 1. It runs exactly what quick
 skipped: the external CLI leg over the full branch diff (`<BASE>...HEAD`)
 concurrently with the verification round (Step 2's native and corpus legs,
-scoped to the quick run's fix commits — that run's `ROUND_START`, or the
-parent of its `polish:` commit when the run was in another session), then
+scoped to the quick run's fix commits — that run's `ROUND_START`, or,
+when the run was in another session, the parent of the *earliest* of the
+consecutive `polish:` commits that end at `HEAD`: Step 4 allows one round
+to make several commits, so walk back through every adjacent `polish:`
+commit, not just the tip one), then
 triages the combined findings as round 2 and stops under the normal Step 5
 rules. If the quick run committed nothing, only the external leg has work
 to do. Every step below applies to both modes unless it says otherwise.

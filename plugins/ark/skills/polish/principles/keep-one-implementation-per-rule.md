@@ -22,9 +22,12 @@ is the general shape.
 - Two versions of one check — a throwing one beside a boolean one, an
   application early-return beside the store's first-write-wins rule — are a
   rule written twice. Keep the stronger one; delete the other.
-- A member list typed as a *subset* of a union lets the union grow without
-  the list. Derive the type from the runtime value
-  (`(typeof LIST)[number]`), never the reverse.
+- A list meant to enumerate *every* member of a union, but typed only as
+  a subset of it, lets the union grow without the list. Derive the union
+  from the runtime value (`(typeof LIST)[number]`), never the reverse. A
+  deliberately partial list (retryable statuses, enabled roles) is a
+  different thing: keep the union authoritative, type the list as its
+  subset, and name it so the partiality is obvious.
 - A client that pre-checks a remote policy (branch protection, an
   authorization decision, a provider's retry rule) has mirrored it and will
   disagree with it. Let the owner decide and surface its answer.
