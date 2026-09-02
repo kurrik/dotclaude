@@ -7,8 +7,9 @@ This skill's job is to commit and push, so when it runs, proceed through all ste
 
 Do the following steps in order. If any step fails, stop and report the error clearly.
 
-1. **Determine the base branch.** Default to the remote HEAD:
-   `git symbolic-ref --short refs/remotes/origin/HEAD` (strip the `origin/` prefix). Fall back to `main` if that fails.
+1. **Determine the base branch.** Fetch first, then default to the remote HEAD:
+   `git fetch -q origin && git symbolic-ref --short refs/remotes/origin/HEAD`. Fall back to `origin/main` if that fails.
+   Everywhere below, `<base>` is that **remote-tracking ref** (`origin/main`), never the local branch: a local `main` can hold an unpushed commit the feature branch was built on, which `main..HEAD` would silently exclude from the secret scan and the size measurement, or be stale and pull unrelated history in. Only the PR target in step 8 uses the short name.
 
 2. **Stage and commit** all current changes. Look at the diff to write a clear, conventional commit message. If there are no uncommitted changes, skip this step.
 
@@ -27,7 +28,10 @@ Do the following steps in order. If any step fails, stop and report the error cl
    - Read the **tip state** `ark:polish` records (defined in its "When this
      runs" section): this session's polish report if a run ended on `HEAD`
      without committing, else the `Mode:` / `Verdict:` trailers of the
-     newest `polish:` commit in `<base>..HEAD`, else none. The verdict is
+     newest commit in `<base>..HEAD` that carries them —
+     `git log --grep='^Verdict: ' -1 --format=%H <base>..HEAD` — else none.
+     The trailer is the record; a commit whose subject merely starts with
+     `polish:` (this PR's own commits do) is an ordinary commit. The verdict is
      the branch's until a later run replaces it; coverage requires that
      commit to be `HEAD`:
      - `not-ready` or `pending`, wherever it sits on the branch, or a
@@ -40,11 +44,10 @@ Do the following steps in order. If any step fails, stop and report the error cl
      - `ready` with commits after it, or no record → the commits after the
        record (or the whole branch) are unreviewed; go on to measure them.
    - Otherwise measure what no reviewer has seen. Take the whole branch
-     (`git diff --stat <base>...HEAD`), or only the commits after the last
-     `polish:` commit *on this branch* if it has one — the lookup must be
-     scoped to the branch range, `git log --grep='^polish:' -1 --format=%H
-     <base>..HEAD`, because an unscoped `git log` also finds polish commits
-     merged into the base long ago and measures the wrong range. Ignore
+     (`git diff --stat <base>...HEAD`), or only the commits after the
+     record found above, if there is one — the lookup is scoped to
+     `<base>..HEAD` because an unscoped `git log` also finds records merged
+     into the base long ago and measures the wrong range. Ignore
      lockfiles, generated bundles, snapshots, and vendored files when
      counting. **Offer** a single polish pass when either holds, otherwise
      proceed to step 4 without offering:

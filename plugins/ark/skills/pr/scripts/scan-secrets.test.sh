@@ -37,9 +37,11 @@ ck "endpoint diff would have missed it" "$(git diff main...HEAD | grep -c API_KE
 hdr "TEST 3: secret-shaped path -> found even with harmless content"
 git checkout -qb envfile main
 mkdir -p infra && echo 'nothing' > infra/.env && git add -f infra/.env && git commit -qm env
+ENVSHA=$(git rev-parse --short=7 HEAD)
+git rm -q infra/.env && git commit -qm "remove env"
 out=$(bash "$SCRIPT" main); ec=$?
 ck "exit code" "$ec" "1"
-has "path reported" "path: infra/.env" "$out"
+has "path reported with its commit" "commit $ENVSHA: path: infra/.env" "$out"
 
 hdr "TEST 4: spaces around = and single quotes (portable whitespace class)"
 git checkout -qb spaced main

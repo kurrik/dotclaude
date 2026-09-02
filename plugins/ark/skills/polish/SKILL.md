@@ -29,8 +29,10 @@ record — the **tip state** — never from a memory of "we polished this":
   after Step 1 item 3, never before it.
 - **The record** is the *last* polish run on the branch: this session's
   report if a run ended on `HEAD` without committing, else the `Mode:` and
-  `Verdict:` trailers of the newest `polish:` commit in `<BASE>..HEAD`
-  (`git log --grep='^polish:' -1 --format=%H <BASE>..HEAD`), else *none*.
+  `Verdict:` trailers of the newest commit in `<BASE>..HEAD` that carries
+  them (`git log --grep='^Verdict: ' -1 --format=%H <BASE>..HEAD`), else
+  *none*. The trailer is the record, not the subject: a commit that merely
+  begins with `polish:` is an ordinary commit.
   Step 6 writes the trailers; `ark:pr` reads the same record, so both
   skills answer from one source.
 - **The verdict belongs to the branch; coverage belongs to the tip.** A
@@ -78,11 +80,13 @@ skipped: the external CLI leg over the full branch diff (`<BASE>...HEAD`)
 concurrently with the verification round (Step 2's native and corpus legs,
 scoped to the quick run's fix commits — that run's `ROUND_START`, or,
 when the run was in another session, the parent of the *earliest* of the
-consecutive `polish:` commits that end at `HEAD`: Step 4 allows one round
-to make several commits, so walk back through every adjacent `polish:`
-commit, not just the tip one), then
-triages the combined findings as round 2 and stops under the normal Step 5
-rules. If the quick run committed nothing, only the external leg has work
+consecutive commits ending at `HEAD` that carry a `Verdict:` trailer: Step
+4 allows one round to make several commits, so walk back through every
+adjacent one, not just the tip), then triages the combined findings as
+round 2 and stops under the normal Step 5 rules. The verification legs
+carry round 2's severity filter for untouched code; the external leg does
+**not** — it is seeing the branch for the first time, so every finding it
+reports is a round-1 finding and is triaged in full. If the quick run committed nothing, only the external leg has work
 to do. Every step below applies to both modes unless it says otherwise.
 
 ## Ground rules (read first, they govern every step)
@@ -166,6 +170,16 @@ Do these in order — each depends on the one before it:
    Record `ROUND_START=$(git rev-parse HEAD)` — round 2 reviews from here.
 
 ## Step 2 — Run the reviewers in parallel
+
+**Before any leg launches, gate the egress.** The external CLI leg sends
+the branch diff to another vendor's service, and a later hard stop cannot
+undo that disclosure. Run the secret scanner that ships with `ark:pr`
+(`../pr/scripts/scan-secrets.sh` relative to this skill's directory) over
+`<BASE>..HEAD`; exit 1 is a hard stop for the whole run — show the hits,
+launch nothing, and ask the human. Exit 2 is a scan error: stop as well
+rather than reviewing unscanned. `ark:pr` runs the same scanner again
+immediately before pushing, so a credential a polish fix introduces is
+caught at the next egress.
 
 Up to three legs in round 1; two in round 2 (see **Round 2 is a
 verification round** below); two in quick mode, which has no round 2. First identify the current host from the
@@ -435,8 +449,9 @@ Verdict: pending
 List only the legs that actually ran (see the failure rule in Step 2).
 `Mode:` is `full` or `quick`; `Verdict:` is written as `pending` here and
 set by Step 6, so a run that dies mid-loop leaves a record `ark:pr` reads
-as not ready. Keep the `polish:` subject prefix in both modes — `ark:pr`
-and `ark:improve-polish` find polish commits by it.
+as not ready. `ark:pr` and this skill find the record by the `Verdict:`
+trailer, never by the subject; keep the `polish:` subject prefix anyway so
+`ark:improve-polish`, which reads audit trails, still finds the rounds.
 
 If a finding revealed a lesson not already covered by any corpus layer,
 route it by scope. Repo-specific lessons: if the repo has a

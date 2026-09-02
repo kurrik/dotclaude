@@ -9,7 +9,7 @@
 #
 # Exit status:
 #   0  nothing secret-shaped found
-#   1  at least one hit (printed to stdout, one per line, with its commit)
+#   1  at least one hit (stdout, one per line, each prefixed with its commit)
 #   2  usage or git error
 #
 # Portable by construction: POSIX classes only ([[:space:]], never \s), no
@@ -30,26 +30,37 @@ LINE_RE='-----BEGIN|AKIA[0-9A-Z]{16}|ghp_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_
 
 hits=0
 # grep exits 1 on no match; that is the clean path, not an error. Anything
-# above 1 (bad pattern, I/O error) must surface as a scan error, never as
-# "clean" -- so every pipeline's status is checked with `scan_ok`.
+# above 1 (bad pattern, I/O error) is a scan error. Git commands run
+# separately from the greps, never in the same pipeline: under pipefail a
+# failed `git show` followed by a no-match grep would report status 1 and
+# read as "clean".
 scan_ok() { [[ $1 -le 1 ]] || { echo "scan-secrets: scan error (status $1)" >&2; exit 2; }; }
+git_ok()  { [[ $1 -eq 0 ]] || { echo "scan-secrets: git failed (status $1)" >&2; exit 2; }; }
 
-# Patterns are passed with -e: LINE_RE begins with "-----BEGIN", which grep
-# would otherwise parse as an option.
-paths=$(git log --format= --name-only "$BASE..$HEAD_REF" | sort -u | grep -Ei -e "$PATH_RE"); scan_ok $?
-if [[ -n "$paths" ]]; then
-  while IFS= read -r p; do echo "path: $p"; done <<<"$paths"
-  hits=1
-fi
+commits=$(git rev-list "$BASE..$HEAD_REF"); git_ok $?
 
-# Walk each commit separately so every hit is attributed to its commit.
+# Walk each commit separately so every hit -- path or line -- is attributed
+# to the commit that introduced it; the caller needs the SHA to tell whether
+# it is already on the remote.
 while IFS= read -r sha; do
   [[ -n "$sha" ]] || continue
-  lines=$(git show --format= --no-color "$sha" | grep -E -e '^\+' | grep -Ev -e '^\+\+\+' | grep -Ei -e "$LINE_RE"); scan_ok $?
-  if [[ -n "$lines" ]]; then
-    while IFS= read -r l; do echo "commit ${sha:0:7}: ${l#+}"; done <<<"$lines"
+  short=${sha:0:7}
+
+  names=$(git show --format= --name-only "$sha"); git_ok $?
+  # Patterns are passed with -e: LINE_RE begins with "-----BEGIN", which
+  # grep would otherwise parse as an option.
+  paths=$(printf '%s\n' "$names" | grep -Ei -e "$PATH_RE"); scan_ok $?
+  if [[ -n "$paths" ]]; then
+    while IFS= read -r p; do echo "commit $short: path: $p"; done <<<"$paths"
     hits=1
   fi
-done < <(git rev-list "$BASE..$HEAD_REF")
+
+  patch=$(git show --format= --no-color "$sha"); git_ok $?
+  lines=$(printf '%s\n' "$patch" | grep -E -e '^\+' | grep -Ev -e '^\+\+\+' | grep -Ei -e "$LINE_RE"); scan_ok $?
+  if [[ -n "$lines" ]]; then
+    while IFS= read -r l; do echo "commit $short: ${l#+}"; done <<<"$lines"
+    hits=1
+  fi
+done <<<"$commits"
 
 exit "$hits"
