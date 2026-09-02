@@ -7,9 +7,8 @@ This skill's job is to commit and push, so when it runs, proceed through all ste
 
 Do the following steps in order. If any step fails, stop and report the error clearly.
 
-1. **Determine the base branch.** Fetch first, then default to the remote HEAD:
-   `git fetch -q origin && git symbolic-ref --short refs/remotes/origin/HEAD`. Fall back to `origin/main` if that fails.
-   Everywhere below, `<base>` is that **remote-tracking ref** (`origin/main`), never the local branch: a local `main` can hold an unpushed commit the feature branch was built on, which `main..HEAD` would silently exclude from the secret scan and the size measurement, or be stale and pull unrelated history in. Only the PR target in step 8 uses the short name.
+1. **Determine the base branch** with the plugin's shared script (`../../scripts/` relative to this SKILL.md; resolve it to an absolute path once and reuse it as `<scripts>` below):
+   `BASE=$(bash <scripts>/resolve-base.sh)`. Everywhere below, `<base>` is that **remote-tracking ref** (`origin/main`), never the local branch. Only the PR target in step 8 uses the short name. The scripts (`resolve-base`, `polish-state`, `scan-secrets`, `push-branch`) are the same ones `ark:polish` and `ark:review` use, so the three skills cannot disagree about a base, a tip's state, or what a push checks.
 
 2. **Stage and commit** all current changes. Look at the diff to write a clear, conventional commit message. If there are no uncommitted changes, skip this step.
 
@@ -25,29 +24,20 @@ Do the following steps in order. If any step fails, stop and report the error cl
      "just push") → skip silently.
    - I explicitly asked for it ("with polish", "polish first", "quick
      polish") → run it, in the mode I named (quick means `--quick`).
-   - Read the **tip state** `ark:polish` records (defined in its "When this
-     runs" section): this session's polish report if a run ended on `HEAD`
-     without committing, else the `Mode:` / `Verdict:` trailers of the
-     newest commit in `<base>..HEAD` that carries them —
-     `git log --grep='^Verdict: ' -1 --format=%H <base>..HEAD` — else none.
-     The trailer is the record; a commit whose subject merely starts with
-     `polish:` (this PR's own commits do) is an ordinary commit. The verdict is
-     the branch's until a later run replaces it; coverage requires that
-     commit to be `HEAD`:
-     - `not-ready` or `pending`, wherever it sits on the branch, or a
-       report that ended blocked or round-capped → the branch is *not*
-       ready: a follow-up commit does not resolve a parked finding. Stop
-       and ask me before pushing, naming what was parked; "push anyway" is
-       my override, and a new polish run is the other way to clear it.
-     - `ready` at `HEAD` → covered; nothing to offer, mention it (and
-       `Mode: quick`, if so) in the summary.
-     - `ready` with commits after it, or no record → the commits after the
-       record (or the whole branch) are unreviewed; go on to measure them.
-   - Otherwise measure what no reviewer has seen. Take the whole branch
-     (`git diff --stat <base>...HEAD`), or only the commits after the
-     record found above, if there is one — the lookup is scoped to
-     `<base>..HEAD` because an unscoped `git log` also finds records merged
-     into the base long ago and measures the wrong range. Ignore
+   - Read the tip state: `bash <scripts>/polish-state.sh <base>` (defined
+     in `ark:polish`'s "When this runs"; this session's report for a run
+     that ended on `HEAD` says the same thing). Act on `state`:
+     - `not-ready` → the branch is *not* ready, wherever the record sits: a
+       follow-up commit does not resolve a parked finding. Stop and ask me
+       before pushing, naming what was parked (`reason` plus the record
+       commit's body); "push anyway" is my override, and a new polish run
+       is the other way to clear it.
+     - `covered` or `unverified` → nothing to offer; mention it (and
+       `unverified`, if so) in the summary.
+     - `unreviewed` → measure `unreviewed_from..HEAD` below.
+   - Otherwise measure what no reviewer has seen:
+     `git diff --stat <unreviewed_from>...HEAD` (the whole branch when there
+     is no record, else only the commits after it). Ignore
      lockfiles, generated bundles, snapshots, and vendored files when
      counting. **Offer** a single polish pass when either holds, otherwise
      proceed to step 4 without offering:
@@ -85,28 +75,24 @@ Do the following steps in order. If any step fails, stop and report the error cl
    inline. Report what the polish/review turned up in the final summary
    (step 9).
 
-4. **Scan for secrets, then push.** Immediately before the push — after
-   every path that can commit (step 2, an accepted polish run, the inline
-   review fallback) — run the scanner that ships with this skill over
-   everything the push would publish:
+4. **Push** — only ever through the shared script, which scans every
+   commit it would publish (paths, added lines, commit messages) and then
+   pushes with upstream set:
 
    ```bash
-   bash "<this skill's directory>/scripts/scan-secrets.sh" <base>
+   bash <scripts>/push-branch.sh <base>
    ```
 
-   It walks every commit's patch and every touched path in `<base>..HEAD`
-   (a push publishes history, so a credential committed and deleted two
-   commits later is still exposed) and exits 0 when clean, 1 with the hits
-   on stdout, 2 on a usage or git error. Resolve the script relative to
-   this SKILL.md's directory. Exit 1 is a hard stop: do not push; show me
-   the lines and ask. If the commit holding a hit is already on the remote
-   (`git branch -r --contains <sha>` prints a branch), say so plainly — the
-   secret needs rotating, and rewriting history is my call. Exit 2 is the
-   ordinary "step failed" case from the top of this skill.
+   The scan lives inside the push so it runs after every path that can
+   commit — step 2, an accepted polish run, the inline review fallback —
+   without any step having to remember it. Exit 1 means it refused: the
+   hits are on stdout; do not work around it, show me the lines and ask.
+   If the commit holding a hit is already on the remote (`git branch -r
+   --contains <sha>` prints a branch), say so plainly — the secret needs
+   rotating, and rewriting history is my call. Exit 2 is the ordinary
+   "step failed" case from the top of this skill.
 
-   Then push the current branch to the remote, setting upstream if needed.
-
-5. **Gather the diff.** List changed files with `git diff --name-status -M <base>...HEAD`, then read each file's diff with `git diff -M <base>...HEAD -- <file>`. For very large diffs, summarize from the first ~10k characters per file rather than reading every line. This read doubles as the last sanity check when no polish ran: anything that shouldn't ship — leftover debug output, a stray TODO from this branch, a file that doesn't belong to the change — gets fixed and committed now (amend nothing; add a commit), and the push in step 4 is repeated. Secrets are not in this list because step 4 already stopped for them before the push.
+5. **Gather the diff.** List changed files with `git diff --name-status -M <base>...HEAD`, then read each file's diff with `git diff -M <base>...HEAD -- <file>`. For very large diffs, summarize from the first ~10k characters per file rather than reading every line. This read doubles as the last sanity check when no polish ran: anything that shouldn't ship — leftover debug output, a stray TODO from this branch, a file that doesn't belong to the change — gets fixed and committed now (amend nothing; add a commit), and the push in step 4 is repeated (through the script, so the new commit is scanned too). Secrets are not in this list because the push itself stops for them.
 
 6. **Read the PR template** at `.github/PULL_REQUEST_TEMPLATE.md` if it exists. If it doesn't, use a minimal structure with `## Summary` and `## Test plan` sections.
 

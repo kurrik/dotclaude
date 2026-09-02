@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Scan every commit in <base>..<head> for secret-shaped paths and added lines.
+# Scan every commit in <base>..<head> for secret-shaped paths, added lines,
+# and commit messages.
 #
 #   bash scan-secrets.sh <base> [<head>]      (head defaults to HEAD)
 #
@@ -52,6 +53,16 @@ while IFS= read -r sha; do
   paths=$(printf '%s\n' "$names" | grep -Ei -e "$PATH_RE"); scan_ok $?
   if [[ -n "$paths" ]]; then
     while IFS= read -r p; do echo "commit $short: path: $p"; done <<<"$paths"
+    hits=1
+  fi
+
+  # The commit message is published by the push too (a pasted credential in
+  # a subject or an audit-trail body), and --format= above deliberately
+  # hides it from the patch scan, so it gets its own pass.
+  msg=$(git log -1 --format=%B "$sha"); git_ok $?
+  mlines=$(printf '%s\n' "$msg" | grep -Ei -e "$LINE_RE"); scan_ok $?
+  if [[ -n "$mlines" ]]; then
+    while IFS= read -r l; do echo "commit $short: message: $l"; done <<<"$mlines"
     hits=1
   fi
 

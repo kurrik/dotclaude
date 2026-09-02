@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Exercises scan-secrets.sh against a throwaway repo.
-# Run directly: bash plugins/ark/skills/pr/scripts/scan-secrets.test.sh
+# Run directly: bash plugins/ark/scripts/scan-secrets.test.sh
 set -uo pipefail
 
 SCRIPT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/scan-secrets.sh"
@@ -49,6 +49,14 @@ printf "password   =   'long-secret-value'\n" > cfg.py && git add . && git commi
 out=$(bash "$SCRIPT" main); ec=$?
 ck "exit code" "$ec" "1"
 has "line reported" "password" "$out"
+
+hdr "TEST 4b: credential in a commit message, clean tree -> found"
+git checkout -qb msg main
+echo ok > m.txt && git add . && git commit -qm 'note: password="long-secret-value"'
+MSGSHA=$(git rev-parse --short=7 HEAD)
+out=$(bash "$SCRIPT" main); ec=$?
+ck "exit code" "$ec" "1"
+has "message hit attributed" "commit $MSGSHA: message: note: password" "$out"
 
 hdr "TEST 5: explicit head ref and usage errors"
 out=$(bash "$SCRIPT" main clean); ec=$?

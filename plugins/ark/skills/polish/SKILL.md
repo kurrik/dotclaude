@@ -21,38 +21,39 @@ Polish is **opt-in per branch**, not a step on every PR:
   pass, and the human accepted.
 
 Never start polish on your own judgment, and never repeat work already
-done on the same branch tip. Whether work is already done is read from one
-record — the **tip state** — never from a memory of "we polished this":
+done on the same branch tip. Whether work is already done is not a matter
+of memory or of reading commit subjects: it is the output of one script,
+`polish-state.sh`, shared with `ark:pr` (see **Scripts** below). Run it
+after Step 1 has committed any dirty work — an uncommitted change means
+there is no covered tip yet — and act on its `state`:
 
-- **The tip** is `HEAD` *after* Step 1 has committed any dirty work.
-  Uncommitted changes mean there is no covered tip yet, so this check runs
-  after Step 1 item 3, never before it.
-- **The record** is the *last* polish run on the branch: this session's
-  report if a run ended on `HEAD` without committing, else the `Mode:` and
-  `Verdict:` trailers of the newest commit in `<BASE>..HEAD` that carries
-  them (`git log --grep='^Verdict: ' -1 --format=%H <BASE>..HEAD`), else
-  *none*. The trailer is the record, not the subject: a commit that merely
-  begins with `polish:` is an ordinary commit.
-  Step 6 writes the trailers; `ark:pr` reads the same record, so both
-  skills answer from one source.
-- **The verdict belongs to the branch; coverage belongs to the tip.** A
-  verdict stays in force until a later polish run replaces it or the human
-  overrides it — commits added after the record do not clear it. Coverage
-  holds only when the record's commit *is* `HEAD`: anything after it is
-  unreviewed by definition.
-- `ready` at `HEAD`, `Mode: full` → covered. Say so and stop.
-- `ready` at `HEAD`, `Mode: quick` → covered but unverified. An explicit
-  full invocation upgrades it (see **Modes**) instead of starting over; a
-  second quick invocation stops.
-- `ready` with commits after it, or *none* → not covered; run normally
-  over the whole branch diff.
-- `not-ready` or `pending` at `HEAD` → the run ended blocked or
-  round-capped (or never reached its verdict). Say what was parked and
-  stop, unless the human says to proceed anyway.
-- `not-ready` or `pending` with commits after it → the human has moved on
-  since the parked round; an explicit invocation is the go-ahead. Run
-  normally, and carry the parked items into this run's triage so they are
-  resolved or re-parked rather than forgotten; the new verdict supersedes.
+| `state` | Meaning | Action |
+|---|---|---|
+| `covered` | a full run ended `ready` at `HEAD` | Say so and stop. |
+| `unverified` | a quick run ended `ready` at `HEAD` | A full invocation upgrades it (see **Modes**); a second quick invocation stops. |
+| `not-ready`, `at_head=yes` | the last run parked something or was round-capped | Say what was parked (`reason`, and the record commit's body) and stop, unless the human says to proceed anyway. |
+| `not-ready`, `at_head=no` | commits landed after a parked run | The invocation is the go-ahead: run normally over the whole diff, carrying the parked items into triage so they are resolved or re-parked; the new record supersedes. |
+| `unreviewed` | no record, or commits after a `ready` one | Run normally over the whole branch diff. |
+
+The verdict belongs to the branch until a later run replaces it; coverage
+belongs to the tip. That is the whole rule, and the script encodes it.
+
+## Scripts
+
+Mechanics live in tested scripts under the plugin's `scripts/` directory
+(`../../scripts/` relative to this SKILL.md; resolve it to an absolute
+path before use, and before handing it to a subagent). Skills state
+policy; scripts do the work, so `ark:pr`, `ark:review`, and this skill
+cannot drift apart on how a base is resolved, how a tip's state is read,
+or what a push checks:
+
+| Script | Does | Exit |
+|---|---|---|
+| `resolve-base.sh` | fetch, print `origin/<default branch>` | 2 on fetch failure |
+| `polish-state.sh <base>` | key=value state of the tip (`state`, `record`, `mode`, `verdict`, `reason`, `at_head`, `round_start`, `unreviewed_from`, `unreviewed_commits`, `dirty`) | 2 on git error |
+| `polish-record.sh --mode m --verdict v [--reason r] [--body-file f]` | write this run's verdict as the trailers at `HEAD` (amend the run's own unpushed round commit, else an empty record commit) | 2 on git error |
+| `scan-secrets.sh <base>` | every commit's paths, added lines, and message in `<base>..HEAD` | 1 hits, 2 error |
+| `push-branch.sh <base>` | `scan-secrets.sh`, then push with upstream — the only way a skill pushes | 1 refused, 2 error |
 
 ## Modes
 
@@ -78,12 +79,10 @@ a blocked run ready.
 quick run's `ready` does not repeat round 1. It runs exactly what quick
 skipped: the external CLI leg over the full branch diff (`<BASE>...HEAD`)
 concurrently with the verification round (Step 2's native and corpus legs,
-scoped to the quick run's fix commits — that run's `ROUND_START`, or,
-when the run was in another session, the parent of the *earliest* of the
-consecutive commits ending at `HEAD` that carry a `Verdict:` trailer: Step
-4 allows one round to make several commits, so walk back through every
-adjacent one, not just the tip), then triages the combined findings as
-round 2 and stops under the normal Step 5 rules. The verification legs
+scoped to the quick run's fix commits — `round_start` from
+`polish-state.sh`, which walks back through every adjacent record commit
+since Step 4 allows one round to make several), then triages the combined
+findings as round 2 and stops under the normal Step 5 rules. The verification legs
 carry round 2's severity filter for untouched code; the external leg does
 **not** — it is seeing the branch for the first time, so every finding it
 reports is a round-1 finding and is triaged in full. If the quick run committed nothing, only the external leg has work
@@ -147,25 +146,19 @@ Do these in order — each depends on the one before it:
    fresh branch this first commit may be the entire diff — that's the normal
    pre-first-commit case, not an error.
 
-4. **Resolve the base and confirm there is a diff to review:**
+4. **Resolve the base, read the tip state, confirm there is a diff:**
 
    ```bash
-   git fetch -q origin
-   BASE=$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null ||
-     git ls-remote --symref origin HEAD 2>/dev/null |
-     awk '/^ref:/ { sub("refs/heads/", "origin/", $2); print $2 }')
-   BASE=${BASE:-origin/main}
-   git diff --stat ${BASE}...HEAD
+   BASE=$(bash <scripts>/resolve-base.sh)        # origin/<default>, after a fetch
+   bash <scripts>/polish-state.sh "$BASE"         # act on `state` per "When this runs"
+   git diff --stat "$BASE...HEAD"
    ```
 
-   `BASE` keeps its `origin/` prefix on purpose: diffs must measure against
-   the just-fetched remote ref, not a possibly-stale local branch.
-   `origin/HEAD` is often unset in locally-initialized clones, so the second
-   resolver asks the remote for its advertised HEAD; `origin/main` is only
-   the last-resort guess, and every fallback must be executable — a comment
-   is not a fallback. If the diff is empty *now* — after any dirty work was
-   committed in item 3 above — **stop and say so**; that means a broken BASE
-   or a branch with nothing on it, never "reviewed and clean."
+   `BASE` keeps its `origin/` prefix on purpose: diffs measure against the
+   just-fetched remote ref, never a possibly-stale or unpushed local branch.
+   If the diff is empty *now* — after any dirty work was committed in item
+   3 — **stop and say so**; that means a branch with nothing on it, never
+   "reviewed and clean."
 
    Record `ROUND_START=$(git rev-parse HEAD)` — round 2 reviews from here.
 
@@ -173,13 +166,11 @@ Do these in order — each depends on the one before it:
 
 **Before any leg launches, gate the egress.** The external CLI leg sends
 the branch diff to another vendor's service, and a later hard stop cannot
-undo that disclosure. Run the secret scanner that ships with `ark:pr`
-(`../pr/scripts/scan-secrets.sh` relative to this skill's directory) over
-`<BASE>..HEAD`; exit 1 is a hard stop for the whole run — show the hits,
-launch nothing, and ask the human. Exit 2 is a scan error: stop as well
-rather than reviewing unscanned. `ark:pr` runs the same scanner again
-immediately before pushing, so a credential a polish fix introduces is
-caught at the next egress.
+undo that disclosure. Run `scan-secrets.sh "$BASE"` (see **Scripts**); exit 1 is a hard stop
+for the whole run — show the hits, launch nothing, and ask the human. Exit
+2 is a scan error: stop as well rather than reviewing unscanned. Every
+push goes through `push-branch.sh`, which scans again, so a credential a
+polish fix introduces is caught at the next egress.
 
 Up to three legs in round 1; two in round 2 (see **Round 2 is a
 verification round** below); two in quick mode, which has no round 2. First identify the current host from the
@@ -449,8 +440,8 @@ Verdict: pending
 List only the legs that actually ran (see the failure rule in Step 2).
 `Mode:` is `full` or `quick`; `Verdict:` is written as `pending` here and
 set by Step 6, so a run that dies mid-loop leaves a record `ark:pr` reads
-as not ready. `ark:pr` and this skill find the record by the `Verdict:`
-trailer, never by the subject; keep the `polish:` subject prefix anyway so
+as not ready. `polish-state.sh` finds the record by the `Verdict:` trailer,
+never by the subject; keep the `polish:` subject prefix anyway so
 `ark:improve-polish`, which reads audit trails, still finds the rounds.
 
 If a finding revealed a lesson not already covered by any corpus layer,
@@ -500,25 +491,17 @@ fixes is ready with a caveat: say the fixes had no verification round and
 that `/ark:polish` (full) is the way to get one. A quick run that parked
 anything is not ready, caveat or no caveat.
 
-Then record the verdict where `ark:pr` and a later session will find it
-(the tip state in **When this runs**). If this run made a commit and that
-commit is `HEAD`, amend its message so the trailer reads `Verdict: ready`
-or `Verdict: not-ready (<one-line reason>)`. That commit is this run's own
-and unpushed — polish never pushes — so the amend rewrites nothing shared;
-confirm `git branch -r --contains HEAD` prints nothing first, and if it
-prints a branch, leave the commit alone and keep the verdict in the report.
-If the run committed nothing and the verdict is `ready`, there is no
-durable record; a later session's `ark:pr` sizes the branch afresh, which
-for a large diff means one extra offer and for a small one means a push,
-exactly as if polish had never run — acceptable for a clean branch. If the
-run committed nothing and the verdict is `not-ready`, that is *not*
-acceptable: a small follow-up in a later session would push a branch
-polish declared blocked. Write the record anyway as an empty commit —
+Then record the verdict — every run ends with a record at `HEAD`:
 
-```
-git commit --allow-empty -m "polish: round N parked — not ready" -m "<the parked findings, one per line>" -m "Reviewers: …" -m "Mode: …" -m "Verdict: not-ready (<reason>)"
+```bash
+bash <scripts>/polish-record.sh --mode <full|quick> --verdict <ready|not-ready> \
+  [--reason "<one line>"] [--body-file <parked findings>]
 ```
 
-— so the parked list and the verdict travel with the branch. This is an
-audit-trail entry, not a CI kick; it is the one case this skill creates an
-empty commit.
+It rewrites the `Verdict: pending` trailer on this run's own unpushed round
+commit, or, when the run committed nothing (or `HEAD` is a pushed record
+from an earlier run), creates an empty record commit carrying the body —
+for `not-ready`, the parked findings, so they travel with the branch and a
+later session's `ark:pr` stops on them. That empty commit is an
+audit-trail entry, not a CI kick; the script decides which case applies,
+so the amend-versus-new decision is never made in prose.
