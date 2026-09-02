@@ -24,7 +24,7 @@ Do the following steps in order. If any step fails, stop and report the error cl
 
    ```bash
    git diff --name-only <base>...HEAD | grep -Ei '(^|/)\.env|\.tfvars$|secret|credential|\.pem$|\.key$|id_(rsa|ed25519)'
-   git diff <base>...HEAD | grep -En "^\+.*(-----BEGIN|AKIA[0-9A-Z]{16}|ghp_[A-Za-z0-9]{20,}|xox[bp]-|(api[_-]?key|secret|token|password)[\"']?\s*[:=]\s*[\"'][^\"']{8,})"
+   git diff <base>...HEAD | grep -Ein "^\+.*(-----BEGIN|AKIA[0-9A-Z]{16}|ghp_[A-Za-z0-9]{20,}|xox[bp]-|(api[_-]?key|secret|token|password)[\"']?\s*[:=]\s*[\"'][^\"']{8,})"
    ```
 
    Any hit is a hard stop: do not push; show me the lines and ask. If the
