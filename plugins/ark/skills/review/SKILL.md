@@ -6,7 +6,9 @@ description: Fetch PR review comments, address them, and push the fixes. Use whe
 Do the following steps in order. This skill talks to GitHub's GraphQL API directly through `gh api` — it needs an authenticated `gh` CLI but no `gh` extensions.
 
 1. **Identify the current PR and its intent.** Get the PR number, repo (owner/repo), and description for the current branch:
-   gh pr view --json number,title,body,url,headRepositoryOwner,headRepository
+   gh pr view --json number,title,body,url,baseRefName,headRepositoryOwner,headRepository
+
+   `baseRefName` is `<base>` in the steps below.
 
    Read the title and body carefully — they state what the PR is trying to accomplish and often the design decisions behind it. Skim the PR's diff (`gh pr diff`) so you understand the shape of the change as a whole. You will judge every review comment against this context, so build it before reading the feedback.
 
@@ -50,7 +52,7 @@ Do the following steps in order. This skill talks to GitHub's GraphQL API direct
 
 4. **Holistic review pass before committing.** Once all fixes are made, review the complete result — this is what catches the "feedback on the fixes" loop:
 
-   - Re-read the full working diff (`git diff` plus anything staged), not just the lines you touched. Check that the individual fixes compose coherently: consistent naming, no duplicated logic, no fix that contradicts another.
+   - Re-read the complete resulting PR diff, base to working tree — `git diff origin/<base>` after `git fetch origin <base>`, which includes uncommitted and staged fixes — not just the fix hunks. A small fix can contradict an earlier change elsewhere in the PR that never appears in the fix's own diff, and for ordinary fixes this pass is the only post-fix review there is. Check that the individual fixes compose coherently with the rest of the PR: consistent naming, no duplicated logic, no fix that contradicts another.
    - Verify each fix still serves the PR's stated goals from step 1, and that none quietly changed behavior the PR didn't intend to change.
    - Review your own changes as a skeptical reviewer would — if a fix would itself draw an obvious comment (dead code, leftover debug output, inconsistent style with the surrounding file, missing edge case), fix that now rather than in the next cycle.
    - Run the project's tests/lint/build if available, and fix any failures before committing.

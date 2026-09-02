@@ -20,11 +20,27 @@ Polish is **opt-in per branch**, not a step on every PR:
   pass, and the human accepted.
 
 Never start polish on your own judgment, and never repeat work already
-done on the same branch tip. What "already done" means depends on the mode
-of the earlier run (see **Modes**): a tip that a *full* run finished is not
-reviewed again — say so and stop; a tip that only a *quick* run covered may
-be upgraded by an explicit full invocation, which runs just the parts quick
-skipped rather than starting over.
+done on the same branch tip. Whether work is already done is read from one
+record — the **tip state** — never from a memory of "we polished this":
+
+- **The tip** is `HEAD` *after* Step 1 has committed any dirty work.
+  Uncommitted changes mean there is no covered tip yet, so this check runs
+  after Step 1 item 3, never before it.
+- **The state** is the `Mode:` and `Verdict:` trailers of `HEAD` when
+  `HEAD` is a `polish:` commit on this branch (subject starts `polish:`
+  and `HEAD` lies in `<BASE>..HEAD`); else this session's report for
+  `HEAD`, if a run ended on it without committing; else *none*. Step 6
+  writes the trailers; `ark:pr` reads the same record, so both skills
+  answer "is this tip covered?" from one source.
+- `Verdict: ready` + `Mode: full` → covered. Say so and stop.
+- `Verdict: ready` + `Mode: quick` → covered but unverified. An explicit
+  full invocation upgrades it (see **Modes**) instead of starting over; a
+  second quick invocation stops.
+- `Verdict: not-ready` or `pending` → the run ended blocked or
+  round-capped (or never reached its verdict). The branch needs the human
+  before another round is worth running: say what was parked and stop,
+  unless the human says to proceed anyway.
+- *none* → nothing is covered; run normally over the whole branch diff.
 
 ## Modes
 
@@ -40,15 +56,18 @@ Quick mode is the cheap first look: same ground rules, same architecture
 pass, same commit format, but one round and no cross-agent review. It stops
 after committing round 1 even when fixes landed — the report says what was
 fixed and that the fixes are unverified by a second round, so the human can
-decide whether a full run is worth it. A quick run counts as having polished
-the branch tip for `ark:pr`'s "already covered" check, with the caveat
-carried into its verdict.
+decide whether a full run is worth it. A quick run that ends clean, on
+diminishing returns, or after committing its fixes records `Verdict: ready`
+with `Mode: quick`; a quick run that parks anything for the human records
+`Verdict: not-ready` like any blocked run — committing one fix does not make
+a blocked run ready.
 
-**Upgrading a quick run.** A full invocation on a tip a quick run already
-covered this session does not repeat round 1. It runs exactly what quick
+**Upgrading a quick run.** A full invocation on a tip whose state is a
+quick run's `ready` does not repeat round 1. It runs exactly what quick
 skipped: the external CLI leg over the full branch diff (`<BASE>...HEAD`)
 concurrently with the verification round (Step 2's native and corpus legs,
-scoped to the quick run's fix commits — use that run's `ROUND_START`), then
+scoped to the quick run's fix commits — that run's `ROUND_START`, or the
+parent of its `polish:` commit when the run was in another session), then
 triages the combined findings as round 2 and stops under the normal Step 5
 rules. If the quick run committed nothing, only the external leg has work
 to do. Every step below applies to both modes unless it says otherwise.
@@ -397,11 +416,14 @@ Structure:
 
 Reviewers: codex-native, claude-cli, review-principles
 Mode: full
+Verdict: pending
 ```
 
 List only the legs that actually ran (see the failure rule in Step 2).
-`Mode:` is `full` or `quick`; keep the `polish:` subject prefix in both —
-`ark:pr` and `ark:improve-polish` find polish commits by it.
+`Mode:` is `full` or `quick`; `Verdict:` is written as `pending` here and
+set by Step 6, so a run that dies mid-loop leaves a record `ark:pr` reads
+as not ready. Keep the `polish:` subject prefix in both modes — `ark:pr`
+and `ark:improve-polish` find polish commits by it.
 
 If a finding revealed a lesson not already covered by any corpus layer,
 route it by scope. Repo-specific lessons: if the repo has a
@@ -447,4 +469,16 @@ verdict: after a clean or diminishing-returns exit the branch is ready for
 `/ark:pr`; after a blocked or round-capped exit, say plainly that it is
 **not** ready and what must be resolved first. A quick run that committed
 fixes is ready with a caveat: say the fixes had no verification round and
-that `/ark:polish` (full) is the way to get one.
+that `/ark:polish` (full) is the way to get one. A quick run that parked
+anything is not ready, caveat or no caveat.
+
+Then record the verdict where `ark:pr` and a later session will find it
+(the tip state in **When this runs**). If this run made a commit and that
+commit is `HEAD`, amend its message so the trailer reads `Verdict: ready`
+or `Verdict: not-ready (<one-line reason>)`. That commit is this run's own
+and unpushed — polish never pushes — so the amend rewrites nothing shared;
+confirm `git branch -r --contains HEAD` prints nothing first, and if it
+prints a branch, leave the commit alone and keep the verdict in the report.
+If the run committed nothing, there is no durable record: the report is
+the only verdict, and a later session's `ark:pr` will size the branch
+afresh — one extra offer, never a silent push.

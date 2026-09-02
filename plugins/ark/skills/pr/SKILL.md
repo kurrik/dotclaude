@@ -15,19 +15,41 @@ Do the following steps in order. If any step fails, stop and report the error cl
 3. **Size the unreviewed diff and decide whether to offer a polish pass.**
    `ark:polish` is not run on every PR — a round is several full-diff
    subagent reviews, so it is offered only when the scope justifies it, and
-   only once. Decide in this order, and stop at the first rule that applies:
+   only once.
+
+   First, before anything leaves the machine, scan the whole branch range
+   for secret-shaped content — a credential that is pushed and then deleted
+   is still in the remote history, so this check has to run before step 4,
+   not after it:
+
+   ```bash
+   git diff --name-only <base>...HEAD | grep -Ei '(^|/)\.env|\.tfvars$|secret|credential|\.pem$|\.key$|id_(rsa|ed25519)'
+   git diff <base>...HEAD | grep -En "^\+.*(-----BEGIN|AKIA[0-9A-Z]{16}|ghp_[A-Za-z0-9]{20,}|xox[bp]-|(api[_-]?key|secret|token|password)[\"']?\s*[:=]\s*[\"'][^\"']{8,})"
+   ```
+
+   Any hit is a hard stop: do not push; show me the lines and ask. If the
+   commit holding it is already on the remote (`git branch -r --contains
+   <sha>` prints a branch), say so plainly — the secret needs rotating, and
+   rewriting history is my call.
+
+   Then decide about polish in this order, stopping at the first rule that
+   applies:
 
    - I explicitly told you to skip it ("without polish", "skip the review",
      "just push") → skip silently.
    - I explicitly asked for it ("with polish", "polish first", "quick
      polish") → run it, in the mode I named (quick means `--quick`).
-   - A polish run this session already covered the current branch tip →
-     act on its verdict, not just its existence. If it ended ready (clean,
-     diminishing returns, or a quick run's ready-with-caveat), there is
-     nothing to offer; mention it in the summary. If it ended blocked or
-     round-capped — the tip is *not* ready — stop and ask me before pushing,
-     exactly as if this invocation had launched it. A run from before later
-     commits landed does not count as covering the tip.
+   - Read the **tip state** `ark:polish` records (defined in its "When this
+     runs" section): this session's polish report for `HEAD` if a run ended
+     on it, else the `Mode:` / `Verdict:` trailers of `HEAD` when `HEAD` is
+     a `polish:` commit inside `<base>..HEAD`. `Verdict: ready` → covered;
+     nothing to offer, mention it (and `Mode: quick`, if so) in the
+     summary. `Verdict: not-ready` or `pending`, or a report that ended
+     blocked or round-capped → the tip is *not* ready: stop and ask me
+     before pushing, exactly as if this invocation had launched polish. No
+     record → `HEAD` is unreviewed; go on to measure it. Never infer
+     coverage from a polish commit that is not `HEAD` — commits after it
+     are unreviewed by definition.
    - Otherwise measure what no reviewer has seen. Take the whole branch
      (`git diff --stat <base>...HEAD`), or only the commits after the last
      `polish:` commit *on this branch* if it has one — the lookup must be
@@ -73,7 +95,7 @@ Do the following steps in order. If any step fails, stop and report the error cl
 
 4. **Push** the current branch to the remote. Set upstream if needed.
 
-5. **Gather the diff.** List changed files with `git diff --name-status -M <base>...HEAD`, then read each file's diff with `git diff -M <base>...HEAD -- <file>`. For very large diffs, summarize from the first ~10k characters per file rather than reading every line. This read doubles as the last sanity check when no polish ran: anything that shouldn't ship — leftover debug output, a stray TODO from this branch, a secret-shaped value, a file that doesn't belong to the change — gets fixed and committed now (amend nothing; add a commit), and the push in step 4 is repeated.
+5. **Gather the diff.** List changed files with `git diff --name-status -M <base>...HEAD`, then read each file's diff with `git diff -M <base>...HEAD -- <file>`. For very large diffs, summarize from the first ~10k characters per file rather than reading every line. This read doubles as the last sanity check when no polish ran: anything that shouldn't ship — leftover debug output, a stray TODO from this branch, a file that doesn't belong to the change — gets fixed and committed now (amend nothing; add a commit), and the push in step 4 is repeated. Secrets are not in this list because step 3 already stopped for them before the push.
 
 6. **Read the PR template** at `.github/PULL_REQUEST_TEMPLATE.md` if it exists. If it doesn't, use a minimal structure with `## Summary` and `## Test plan` sections.
 
