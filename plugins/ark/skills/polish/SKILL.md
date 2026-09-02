@@ -19,9 +19,12 @@ Polish is **opt-in per branch**, not a step on every PR:
 - `ark:pr` / `ark:review` sized the unreviewed diff, offered a single polish
   pass, and the human accepted.
 
-Never start polish on your own judgment, and never run it twice on the same
-branch tip. If it was invoked but the branch tip was already polished this
-session, say so and stop instead of re-reviewing.
+Never start polish on your own judgment, and never repeat work already
+done on the same branch tip. What "already done" means depends on the mode
+of the earlier run (see **Modes**): a tip that a *full* run finished is not
+reviewed again — say so and stop; a tip that only a *quick* run covered may
+be upgraded by an explicit full invocation, which runs just the parts quick
+skipped rather than starting over.
 
 ## Modes
 
@@ -38,8 +41,17 @@ pass, same commit format, but one round and no cross-agent review. It stops
 after committing round 1 even when fixes landed — the report says what was
 fixed and that the fixes are unverified by a second round, so the human can
 decide whether a full run is worth it. A quick run counts as having polished
-the branch tip for `ark:pr`'s "already covered" check. Every step below
-applies to both modes unless it says otherwise.
+the branch tip for `ark:pr`'s "already covered" check, with the caveat
+carried into its verdict.
+
+**Upgrading a quick run.** A full invocation on a tip a quick run already
+covered this session does not repeat round 1. It runs exactly what quick
+skipped: the external CLI leg over the full branch diff (`<BASE>...HEAD`)
+concurrently with the verification round (Step 2's native and corpus legs,
+scoped to the quick run's fix commits — use that run's `ROUND_START`), then
+triages the combined findings as round 2 and stops under the normal Step 5
+rules. If the quick run committed nothing, only the external leg has work
+to do. Every step below applies to both modes unless it says otherwise.
 
 ## Ground rules (read first, they govern every step)
 
@@ -293,7 +305,11 @@ and the full branch diff only as far as needed to check three things: each
 fix actually closes its finding (not just the flagged line — the class);
 the fix commits introduce no new instance of a class already flagged on the
 branch; and nothing an earlier fix established was dropped by a later one.
-New findings unrelated to round 1 are reported only at high severity. The
+Anything *inside the fix commits* is reported at every severity — fix code
+is new code, and a patch that also changed an adjacent condition is exactly
+what this round exists to catch. The severity filter applies only to code
+the fixes did not touch: pre-existing findings round 1 missed are reported
+at high severity only, so round 2 verifies rather than re-discovers. The
 one exception: if round 1's structural pass reshaped the branch (Step 3a
 chose a restructuring over patches), round 2 reviews the full diff again
 with the same two legs — a new shape deserves a fresh read.

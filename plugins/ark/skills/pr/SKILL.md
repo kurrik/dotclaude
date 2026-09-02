@@ -21,21 +21,31 @@ Do the following steps in order. If any step fails, stop and report the error cl
      "just push") → skip silently.
    - I explicitly asked for it ("with polish", "polish first", "quick
      polish") → run it, in the mode I named (quick means `--quick`).
-   - A polish loop this session already covered the current branch tip →
-     nothing to offer; mention it in the summary. A loop from before later
+   - A polish run this session already covered the current branch tip →
+     act on its verdict, not just its existence. If it ended ready (clean,
+     diminishing returns, or a quick run's ready-with-caveat), there is
+     nothing to offer; mention it in the summary. If it ended blocked or
+     round-capped — the tip is *not* ready — stop and ask me before pushing,
+     exactly as if this invocation had launched it. A run from before later
      commits landed does not count as covering the tip.
    - Otherwise measure what no reviewer has seen. Take the whole branch
      (`git diff --stat <base>...HEAD`), or only the commits after the last
-     `polish:` commit if the branch has one (`git log --grep='^polish:' -1
-     --format=%H`). Ignore lockfiles, generated bundles, snapshots, and
-     vendored files when counting. **Offer** a single polish pass when any
-     of these holds, otherwise proceed to step 4 without offering:
+     `polish:` commit *on this branch* if it has one — the lookup must be
+     scoped to the branch range, `git log --grep='^polish:' -1 --format=%H
+     <base>..HEAD`, because an unscoped `git log` also finds polish commits
+     merged into the base long ago and measures the wrong range. Ignore
+     lockfiles, generated bundles, snapshots, and vendored files when
+     counting. **Offer** a single polish pass when either holds, otherwise
+     proceed to step 4 without offering:
      - more than ~400 changed lines, or more than ~10 files;
      - the diff touches authentication, authorization, secrets, payments,
        data migrations, infra/CI, or concurrency — areas where a review round
-       on GitHub is far costlier than one here;
-     - the branch was built without any review this session (no polish, no
-       native review, no human read-through).
+       on GitHub is far costlier than one here.
+
+     "No reviewer has looked at this yet" is not by itself a reason to
+     offer: it is true of nearly every fresh branch, and the two rules above
+     already decide when an unreviewed diff is worth a round. Small,
+     ordinary diffs push straight away.
 
    **How to offer:** ask me once, using the host's question tool
    (`AskUserQuestion` in Claude Code), with the numbers — files, lines, and
@@ -43,7 +53,7 @@ Do the following steps in order. If any step fails, stop and report the error cl
    a full polish pass (recommended when a sensitive area fired, or the diff
    is far past the size line), a quick pass — `ark:polish --quick`, one
    round, native and corpus reviewers only, no cross-agent CLI (recommended
-   when only the size or no-review rule fired), or push without either. If
+   when only the size rule fired), or push without either. If
    the session cannot ask (unattended, non-interactive), do not run polish:
    push, and say in the summary which pass was recommended and why, so I
    can run `/ark:polish` or `/ark:polish --quick` on the branch afterwards.
