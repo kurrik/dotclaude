@@ -1,6 +1,7 @@
 ---
 name: polish
-description: Frontload the PR review cycle before pushing a branch. Runs up to three reviewers in parallel subagents (the current Claude, Codex, or Grok host's native reviewer, a preferred cross-agent CLI review if installed, and a check against a layered review-principles corpus — general principles bundled with this skill, plus machine-level ~/.claude/review-principles and the repo's .claude/review-principles when present), reads the branch as a whole for structural fixes before patching individual findings, triages and fixes autonomously without expanding scope, commits each round with the feedback and justification in the message, and stops after at most two rounds. Costly — run it only when the human invokes /ark:polish, or accepts the one-time offer ark:pr / ark:review makes for a large unreviewed diff. Never run it unprompted.
+argument-hint: "[--quick]"
+description: Frontload the PR review cycle before pushing a branch. Runs up to three reviewers in parallel subagents (the current Claude, Codex, or Grok host's native reviewer, a preferred cross-agent CLI review if installed, and a check against a layered review-principles corpus — general principles bundled with this skill, plus machine-level ~/.claude/review-principles and the repo's .claude/review-principles when present), reads the branch as a whole for structural fixes before patching individual findings, triages and fixes autonomously without expanding scope, commits each round with the feedback and justification in the message, and stops after at most two rounds; --quick runs a single round with the native and corpus legs only. Costly — run it only when the human invokes /ark:polish, or accepts the one-time offer ark:pr / ark:review makes for a large unreviewed diff. Never run it unprompted.
 ---
 
 # ark:polish — frontload the review cycle
@@ -21,6 +22,24 @@ Polish is **opt-in per branch**, not a step on every PR:
 Never start polish on your own judgment, and never run it twice on the same
 branch tip. If it was invoked but the branch tip was already polished this
 session, say so and stop instead of re-reviewing.
+
+## Modes
+
+The invocation's arguments select the mode; anything else after the skill
+name is ignored.
+
+| Mode | Invocation | Rounds | Legs |
+|---|---|---|---|
+| Full (default) | `/ark:polish` | up to 2 — a full round, then a verification round | native + external CLI + corpus, then native + corpus |
+| Quick | `/ark:polish --quick` | exactly 1 | native + corpus; the external CLI leg is never launched |
+
+Quick mode is the cheap first look: same ground rules, same architecture
+pass, same commit format, but one round and no cross-agent review. It stops
+after committing round 1 even when fixes landed — the report says what was
+fixed and that the fixes are unverified by a second round, so the human can
+decide whether a full run is worth it. A quick run counts as having polished
+the branch tip for `ark:pr`'s "already covered" check. Every step below
+applies to both modes unless it says otherwise.
 
 ## Ground rules (read first, they govern every step)
 
@@ -105,7 +124,7 @@ Do these in order — each depends on the one before it:
 ## Step 2 — Run the reviewers in parallel
 
 Up to three legs in round 1; two in round 2 (see **Round 2 is a
-verification round** below). First identify the current host from the
+verification round** below); two in quick mode, which has no round 2. First identify the current host from the
 active session — Claude Code, Codex, or Grok — **not** from which
 executables happen to be on `PATH`. Then select the native and external
 reviewers from this matrix:
@@ -177,8 +196,8 @@ generalities is not.
    spawning a duplicate reviewer. A report from before this round's fixes is
    stale — spawn a fresh reviewer; this check re-applies every round.
 
-2. **External CLI reviewer** (round 1 only, if the opposite CLI is
-   installed) — launch it inside a general-purpose native subagent so it runs
+2. **External CLI reviewer** (full mode, round 1 only, if the opposite CLI
+   is installed; never in quick mode) — launch it inside a general-purpose native subagent so it runs
    concurrently with the other legs and its failure stays isolated. Record
    the leg as `codex-cli` or `claude-cli` according to the executable that
    actually ran. It runs in round 1 only: a cross-agent review of the whole
@@ -361,9 +380,12 @@ Structure:
 - <finding declined> — declined: <one-line justification>
 
 Reviewers: codex-native, claude-cli, review-principles
+Mode: full
 ```
 
 List only the legs that actually ran (see the failure rule in Step 2).
+`Mode:` is `full` or `quick`; keep the `polish:` subject prefix in both —
+`ark:pr` and `ark:improve-polish` find polish commits by it.
 
 If a finding revealed a lesson not already covered by any corpus layer,
 route it by scope. Repo-specific lessons: if the repo has a
@@ -380,7 +402,8 @@ mid-polish — list them in the report as candidates for those layers.
 ## Step 5 — Loop or stop
 
 After round 1, run round 2 (the verification round in Step 2) only if round
-1 committed fixes. **Stop when any of these hits:**
+1 committed fixes — and never in quick mode, which ends after round 1
+regardless. **Stop when any of these hits:**
 
 - **Blocked on a human** — a parked finding needs a design decision, or a
   reviewer raised something that would mean significant rework or a direction
@@ -399,11 +422,13 @@ After round 1, run round 2 (the verification round in Step 2) only if round
 
 ## Step 6 — Report
 
-Summarize: rounds run, which reviewer legs ran (and which were skipped or
+Summarize: the mode, rounds run, which reviewer legs ran (and which were skipped or
 failed), the architecture pass (each cluster and the level chosen — the
 structural changes made and the ones parked), findings fixed / declined /
 parked per round (with the one-line reasons), any new principle files added,
 and exactly what needs the human's input. End with an explicit readiness
 verdict: after a clean or diminishing-returns exit the branch is ready for
 `/ark:pr`; after a blocked or round-capped exit, say plainly that it is
-**not** ready and what must be resolved first.
+**not** ready and what must be resolved first. A quick run that committed
+fixes is ready with a caveat: say the fixes had no verification round and
+that `/ark:polish` (full) is the way to get one.

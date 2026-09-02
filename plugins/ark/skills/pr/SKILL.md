@@ -19,7 +19,8 @@ Do the following steps in order. If any step fails, stop and report the error cl
 
    - I explicitly told you to skip it ("without polish", "skip the review",
      "just push") → skip silently.
-   - I explicitly asked for it ("with polish", "polish first") → run it.
+   - I explicitly asked for it ("with polish", "polish first", "quick
+     polish") → run it, in the mode I named (quick means `--quick`).
    - A polish loop this session already covered the current branch tip →
      nothing to offer; mention it in the summary. A loop from before later
      commits landed does not count as covering the tip.
@@ -38,14 +39,17 @@ Do the following steps in order. If any step fails, stop and report the error cl
 
    **How to offer:** ask me once, using the host's question tool
    (`AskUserQuestion` in Claude Code), with the numbers — files, lines, and
-   the areas that tripped the rule — and a recommendation. Two options:
-   run one polish pass now (recommended when the rule that fired was a
-   sensitive area or a very large diff), or push without it. If the session
-   cannot ask (unattended, non-interactive), do not run polish: push, and
-   say in the summary that a polish pass was recommended and why, so I can
-   run `/ark:polish` on the branch afterwards.
+   the areas that tripped the rule — and a recommendation. Three options:
+   a full polish pass (recommended when a sensitive area fired, or the diff
+   is far past the size line), a quick pass — `ark:polish --quick`, one
+   round, native and corpus reviewers only, no cross-agent CLI (recommended
+   when only the size or no-review rule fired), or push without either. If
+   the session cannot ask (unattended, non-interactive), do not run polish:
+   push, and say in the summary which pass was recommended and why, so I
+   can run `/ark:polish` or `/ark:polish --quick` on the branch afterwards.
 
-   If I accept, run the `ark:polish` skill on the branch. It reviews
+   If I accept, run the `ark:polish` skill on the branch in the mode I
+   chose. It reviews
    `<base>...HEAD`, triages the findings (structural fixes first, then
    patches, declining scope expansion), and commits each round with the
    audit trail — so don't duplicate that triage here. If polish exits
