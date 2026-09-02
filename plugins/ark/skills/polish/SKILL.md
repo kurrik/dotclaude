@@ -492,6 +492,18 @@ or `Verdict: not-ready (<one-line reason>)`. That commit is this run's own
 and unpushed — polish never pushes — so the amend rewrites nothing shared;
 confirm `git branch -r --contains HEAD` prints nothing first, and if it
 prints a branch, leave the commit alone and keep the verdict in the report.
-If the run committed nothing, there is no durable record: the report is
-the only verdict, and a later session's `ark:pr` will size the branch
-afresh — one extra offer, never a silent push.
+If the run committed nothing and the verdict is `ready`, there is no
+durable record; a later session's `ark:pr` sizes the branch afresh, which
+for a large diff means one extra offer and for a small one means a push,
+exactly as if polish had never run — acceptable for a clean branch. If the
+run committed nothing and the verdict is `not-ready`, that is *not*
+acceptable: a small follow-up in a later session would push a branch
+polish declared blocked. Write the record anyway as an empty commit —
+
+```
+git commit --allow-empty -m "polish: round N parked — not ready" -m "<the parked findings, one per line>" -m "Reviewers: …" -m "Mode: …" -m "Verdict: not-ready (<reason>)"
+```
+
+— so the parked list and the verdict travel with the branch. This is an
+audit-trail entry, not a CI kick; it is the one case this skill creates an
+empty commit.

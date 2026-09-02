@@ -17,27 +17,7 @@ Do the following steps in order. If any step fails, stop and report the error cl
    subagent reviews, so it is offered only when the scope justifies it, and
    only once.
 
-   First, before anything leaves the machine, scan **every commit** in the
-   branch range for secret-shaped content — a push publishes the history,
-   not just the final tree, so a credential committed and then deleted two
-   commits later is still exposed, and an endpoint diff (`<base>...HEAD`)
-   would never show it. Walk the patches:
-
-   ```bash
-   git log --format= --name-only <base>..HEAD | sort -u | grep -Ei '(^|/)\.env|\.tfvars$|secret|credential|\.pem$|\.key$|id_(rsa|ed25519)'
-   git log -p --format='commit %h' <base>..HEAD | grep -Ein "^(commit |\+.*(-----BEGIN|AKIA[0-9A-Z]{16}|ghp_[A-Za-z0-9]{20,}|xox[bp]-|(api[_-]?key|secret|token|password)[\"']?\s*[:=]\s*[\"'][^\"']{8,}))" | grep -B1 -v '^[0-9]*:commit '
-   ```
-
-   The first command lists every path any commit touched; the second
-   prints matching added lines with the commit they came from (the
-   `commit` marker lines are kept only as context).
-
-   Any hit is a hard stop: do not push; show me the lines and ask. If the
-   commit holding it is already on the remote (`git branch -r --contains
-   <sha>` prints a branch), say so plainly — the secret needs rotating, and
-   rewriting history is my call.
-
-   Then decide about polish in this order, stopping at the first rule that
+   Decide about polish in this order, stopping at the first rule that
    applies:
 
    - I explicitly told you to skip it ("without polish", "skip the review",
@@ -102,9 +82,28 @@ Do the following steps in order. If any step fails, stop and report the error cl
    inline. Report what the polish/review turned up in the final summary
    (step 9).
 
-4. **Push** the current branch to the remote. Set upstream if needed.
+4. **Scan for secrets, then push.** Immediately before the push — after
+   every path that can commit (step 2, an accepted polish run, the inline
+   review fallback) — run the scanner that ships with this skill over
+   everything the push would publish:
 
-5. **Gather the diff.** List changed files with `git diff --name-status -M <base>...HEAD`, then read each file's diff with `git diff -M <base>...HEAD -- <file>`. For very large diffs, summarize from the first ~10k characters per file rather than reading every line. This read doubles as the last sanity check when no polish ran: anything that shouldn't ship — leftover debug output, a stray TODO from this branch, a file that doesn't belong to the change — gets fixed and committed now (amend nothing; add a commit), and the push in step 4 is repeated. Secrets are not in this list because step 3 already stopped for them before the push.
+   ```bash
+   bash "<this skill's directory>/scripts/scan-secrets.sh" <base>
+   ```
+
+   It walks every commit's patch and every touched path in `<base>..HEAD`
+   (a push publishes history, so a credential committed and deleted two
+   commits later is still exposed) and exits 0 when clean, 1 with the hits
+   on stdout, 2 on a usage or git error. Resolve the script relative to
+   this SKILL.md's directory. Exit 1 is a hard stop: do not push; show me
+   the lines and ask. If the commit holding a hit is already on the remote
+   (`git branch -r --contains <sha>` prints a branch), say so plainly — the
+   secret needs rotating, and rewriting history is my call. Exit 2 is the
+   ordinary "step failed" case from the top of this skill.
+
+   Then push the current branch to the remote, setting upstream if needed.
+
+5. **Gather the diff.** List changed files with `git diff --name-status -M <base>...HEAD`, then read each file's diff with `git diff -M <base>...HEAD -- <file>`. For very large diffs, summarize from the first ~10k characters per file rather than reading every line. This read doubles as the last sanity check when no polish ran: anything that shouldn't ship — leftover debug output, a stray TODO from this branch, a file that doesn't belong to the change — gets fixed and committed now (amend nothing; add a commit), and the push in step 4 is repeated. Secrets are not in this list because step 4 already stopped for them before the push.
 
 6. **Read the PR template** at `.github/PULL_REQUEST_TEMPLATE.md` if it exists. If it doesn't, use a minimal structure with `## Summary` and `## Test plan` sections.
 
