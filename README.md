@@ -37,7 +37,7 @@ grok plugin install ark --trust
 
 - **`/ark:polish`** — frontload the PR review cycle before pushing: run up to three reviewers in parallel subagents (the current host's native reviewer, a preferred cross-agent CLI review if installed, and a check against a layered review-principles corpus), read the branch as a whole and choose structural fixes over behavior patches, triage and fix findings without expanding scope, commit each round with the audit trail in the message, and stop after at most two rounds — a full review round, then a cheaper verification round without the cross-agent leg. `/ark:polish --quick` runs a single round with only the native and corpus reviewers, no cross-agent CLI, for a cheap first look. Claude Code pairs its native review with [Codex CLI](https://github.com/openai/codex); Codex pairs its native review with Claude CLI; Grok pairs its native review with Codex CLI, falling back to Claude CLI only when Codex is unavailable or fails before reviewing. This avoids redundant nested same-agent sessions. **Opt-in:** it runs only when you invoke it, or when `/ark:pr` sizes a large or sensitive unreviewed diff (or `/ark:review` finds its fixes reshaped the PR), offers a single pass, and you accept — never on every PR. The corpus has three layers: general principles bundled with the skill ([`plugins/ark/skills/polish/principles/`](plugins/ark/skills/polish/principles/)), machine-specific rules in `~/.claude/review-principles/`, and repo-specific rules in the repo's `.claude/review-principles/` — same-named files are the same principle, with the more specific layer winning on conflict.
 - **`/ark:improve-polish`** — upstream review-cycle lessons from the current session back into the bundled corpus: diagnose this session's polish rounds, PR review feedback, and human corrections for generalizable lessons (errors and feedback to anticipate, better fix patterns), draft principle updates with real positive and negative examples, and — after you approve the draft — open a PR against this repo entirely through `gh api`, so it works from any machine that installed the marketplace with no local checkout of `kurrik/dotclaude`.
-- **`/ark:pr`** — stage, commit, push the current branch, and open a GitHub PR with an auto-generated description that follows the repo's PR template. Sizes the unreviewed diff first and, when it is large or touches a sensitive area (auth, secrets, migrations, infra, concurrency), asks once whether to run `/ark:polish` (full or `--quick`) before pushing; small diffs push straight away. Pushes only through [`push-branch.sh`](plugins/ark/scripts/push-branch.sh), which scans every commit it would publish (paths, added lines, commit messages) for high-confidence credential shapes and refuses on a hit; a committed `.ark-scan-ignore` exempts fixture paths, and `--override-scan "<reason>"` exists for the false positive you confirm yourself.
+- **`/ark:pr`** — stage, commit, push the current branch, and open a GitHub PR with an auto-generated description that follows the repo's PR template. Sizes the unreviewed diff first and, when it is large or touches a sensitive area (auth, secrets, migrations, infra, concurrency), asks once whether to run `/ark:polish` (full or `--quick`) before pushing; small diffs push straight away.
 - **`/ark:review`** — fetch PR review comments, address them, push fixes, and reply to each thread through a single pending review. Reviews its own fixes holistically before pushing; offers `/ark:polish` only when the fixes reshaped the PR.
 - **`/ark:reset-worktree`** — reset the current git worktree's branch back to the base branch, or the primary clone back to a clean `main` checkout. Asks before discarding uncommitted work.
 
@@ -96,15 +96,6 @@ dotclaude/
 │   └── ark/
 │       ├── .claude-plugin/
 │       │   └── plugin.json      # Plugin manifest (name, version, metadata)
-│       ├── scripts/             # Mechanics shared by pr / review / polish, each with a test run in CI
-│       │   ├── resolve-base.sh      # fetch + print origin/<default branch>
-│       │   ├── polish-state.sh      # has this tip been polished, and what did polish say?
-│       │   ├── polish-record.sh     # write a polish run's verdict as commit trailers
-│       │   ├── record-lib.sh        # the one definition of a record, sourced by both
-│       │   ├── scan-secrets.sh      # every commit's paths, added lines, and message
-│       │   ├── push-branch.sh       # scan, then push — the only way a skill pushes
-│       │   ├── polish-state.test.sh
-│       │   └── scan-secrets.test.sh
 │       └── skills/              # Skills (one directory per skill)
 │           ├── improve-polish/
 │           │   └── SKILL.md     # Upstreams session review lessons into polish's corpus
@@ -125,8 +116,6 @@ dotclaude/
 ```
 
 Component directories (`skills/`, `commands/`, `agents/`, `hooks/`, `.mcp.json`) live at the **plugin root** — only `plugin.json` goes inside `.claude-plugin/`.
-
-The `ark` skills follow one rule: **skills state policy, scripts do mechanics.** Anything three skills would otherwise each restate — how the base is resolved, whether a tip has been polished, what a push checks — is a script in `plugins/ark/scripts/` with a test, and the SKILL.md files call it. That is what keeps `ark:pr`, `ark:review`, and `ark:polish` from drifting apart.
 
 ## Share across every instance
 

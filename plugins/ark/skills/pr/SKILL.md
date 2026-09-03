@@ -7,37 +7,32 @@ This skill's job is to commit and push, so when it runs, proceed through all ste
 
 Do the following steps in order. If any step fails, stop and report the error clearly.
 
-1. **Determine the base branch** with the plugin's shared script (`../../scripts/` relative to this SKILL.md; resolve it to an absolute path once and reuse it as `<scripts>` below):
-   `BASE=$(bash <scripts>/resolve-base.sh)`. Everywhere below, `<base>` is that **remote-tracking ref** (`origin/main`), never the local branch. Only the PR target in step 8 uses the short name. The scripts (`resolve-base`, `polish-state`, `scan-secrets`, `push-branch`) are the same ones `ark:polish` and `ark:review` use, so the three skills cannot disagree about a base, a tip's state, or what a push checks.
+1. **Determine the base branch.** Fetch first, then default to the remote HEAD: `git fetch -q origin && git symbolic-ref --short refs/remotes/origin/HEAD`, falling back to `origin/main`. Everywhere below, `<base>` is that remote-tracking ref, never the local branch (a local `main` can be stale or carry an unpushed commit). Only the PR target in step 8 uses the short name.
 
 2. **Stage and commit** all current changes. Look at the diff to write a clear, conventional commit message. If there are no uncommitted changes, skip this step.
 
 3. **Size the unreviewed diff and decide whether to offer a polish pass.**
    `ark:polish` is not run on every PR — a round is several full-diff
    subagent reviews, so it is offered only when the scope justifies it, and
-   only once.
-
-   Decide about polish in this order, stopping at the first rule that
-   applies:
+   only once. Decide in this order, and stop at the first rule that applies:
 
    - I explicitly told you to skip it ("without polish", "skip the review",
      "just push") → skip silently.
    - I explicitly asked for it ("with polish", "polish first", "quick
      polish") → run it, in the mode I named (quick means `--quick`).
-   - Read the tip state: `bash <scripts>/polish-state.sh <base>` (defined
-     in `ark:polish`'s "When this runs"; this session's report for a run
-     that ended on `HEAD` says the same thing). Act on `state`:
-     - `not-ready` → the branch is *not* ready, wherever the record sits: a
-       follow-up commit does not resolve a parked finding. Stop and ask me
-       before pushing, naming what was parked (`reason` plus the record
-       commit's body); "push anyway" is my override, and a new polish run
-       is the other way to clear it.
-     - `covered` or `unverified` → nothing to offer; mention it (and
-       `unverified`, if so) in the summary.
-     - `unreviewed` → measure `unreviewed_from..HEAD` below.
-   - Otherwise measure what no reviewer has seen:
-     `git diff --stat <unreviewed_from>...HEAD` (the whole branch when there
-     is no record, else only the commits after it). Ignore
+   - A polish run this session already covered the current branch tip →
+     act on its verdict, not just its existence. If it ended ready (clean,
+     diminishing returns, or a quick run's ready-with-caveat), there is
+     nothing to offer; mention it in the summary. If it ended blocked or
+     round-capped — the tip is *not* ready — stop and ask me before pushing,
+     exactly as if this invocation had launched it. A run from before later
+     commits landed does not count as covering the tip.
+   - Otherwise measure what no reviewer has seen. Take the whole branch
+     (`git diff --stat <base>...HEAD`), or only the commits after the last
+     `polish:` commit *on this branch* if it has one — the lookup must be
+     scoped to the branch range, `git log --grep='^polish:' -1 --format=%H
+     <base>..HEAD`, because an unscoped `git log` also finds polish commits
+     merged into the base long ago and measures the wrong range. Ignore
      lockfiles, generated bundles, snapshots, and vendored files when
      counting. **Offer** a single polish pass when either holds, otherwise
      proceed to step 4 without offering:
@@ -75,31 +70,9 @@ Do the following steps in order. If any step fails, stop and report the error cl
    inline. Report what the polish/review turned up in the final summary
    (step 9).
 
-4. **Push** — only ever through the shared script, which scans every
-   commit it would publish (paths, added lines, commit messages) and then
-   pushes with upstream set:
+4. **Push** the current branch to the remote. Set upstream if needed.
 
-   ```bash
-   bash <scripts>/push-branch.sh <base>
-   ```
-
-   The scan lives inside the push so it runs after every path that can
-   commit — step 2, an accepted polish run, the inline review fallback —
-   without any step having to remember it. It matches only high-confidence
-   shapes (private-key headers, provider token formats, credential-store
-   filenames), and a repo can exempt fixture paths in a committed
-   `.ark-scan-ignore`. Exit 1 means it refused: the hits are on stdout.
-   Never work around it with `git push`; show me the lines and ask. Two
-   answers are possible: it is real, in which case say whether the commit
-   is already on the remote (`git branch -r --contains <sha>`) because the
-   secret then needs rotating and rewriting history is my call; or I
-   confirm it is a false positive, in which case re-run with
-   `--override-scan "<my reason>"` — that flag is only ever passed on my
-   explicit say-so, and the reason is printed with the hits so the
-   transcript records who decided. Exit 2 is the ordinary "step failed"
-   case from the top of this skill.
-
-5. **Gather the diff.** List changed files with `git diff --name-status -M <base>...HEAD`, then read each file's diff with `git diff -M <base>...HEAD -- <file>`. For very large diffs, summarize from the first ~10k characters per file rather than reading every line. This read doubles as the last sanity check when no polish ran: anything that shouldn't ship — leftover debug output, a stray TODO from this branch, a file that doesn't belong to the change — gets fixed and committed now (amend nothing; add a commit), and the push in step 4 is repeated (through the script, so the new commit is scanned too). Secrets are not in this list because the push itself stops for them.
+5. **Gather the diff.** List changed files with `git diff --name-status -M <base>...HEAD`, then read each file's diff with `git diff -M <base>...HEAD -- <file>`. For very large diffs, summarize from the first ~10k characters per file rather than reading every line. This read doubles as the last sanity check when no polish ran: anything that shouldn't ship — leftover debug output, a stray TODO from this branch, a secret-shaped value, a file that doesn't belong to the change — gets fixed and committed now (amend nothing; add a commit), and the push in step 4 is repeated.
 
 6. **Read the PR template** at `.github/PULL_REQUEST_TEMPLATE.md` if it exists. If it doesn't, use a minimal structure with `## Summary` and `## Test plan` sections.
 
