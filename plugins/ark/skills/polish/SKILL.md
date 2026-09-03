@@ -29,8 +29,10 @@ skipped rather than starting over.
 
 ## Modes
 
-The invocation's arguments select the mode; anything else after the skill
-name is ignored.
+The invocation's arguments select the mode. `--quick` is the only argument
+this skill takes; anything else (a typo such as `--quik`, a stray word) is
+a usage error — stop and say so rather than falling through to the costlier
+full mode.
 
 | Mode | Invocation | Rounds | Legs |
 |---|---|---|---|
@@ -256,6 +258,10 @@ generalities is not.
    The subagent returns the findings verbatim (reshaped into the compact
    shape above if the CLI's output differs), plus a one-line note if the CLI
    errored (sandbox, auth, network, timeout) rather than papering over it.
+   `codex review` takes no custom instructions, so this leg's Architecture
+   section is written as "not assessed — external CLI", never "none": the
+   native and corpus legs carry the whole-design read, and Step 3a clusters
+   the external leg's findings by root cause alongside theirs.
 
 3. **Corpus reviewer** (always available) — the corpus is layered across up
    to three directories, most general first:
@@ -327,9 +333,12 @@ two passes — the order matters.
 
 ### 3a — Architecture pass (before any fix)
 
-Start with the review trajectory, not the findings. Read this branch's
-earlier `polish:` commits and, if a PR exists, its review threads, and
-mark every finding by *what it landed on*: code that serves the intent
+Start with the review trajectory, not the findings. The record is this
+branch's earlier `polish:` commits — always available from git — plus, when
+a PR exists *and* an authenticated `gh` is on this machine, its review
+threads (`gh pr view --json number`, then the GraphQL query in
+`ark:review` step 2); without `gh`, the commits and this session's own
+rounds are the record, and that is enough. Mark every finding by *what it landed on*: code that serves the intent
 summary, or code an earlier round introduced. A finding on
 round-introduced code is evidence about the expansion, not a defect to
 fix — see `audit-the-review-trajectory` in the corpus. If the diff has
