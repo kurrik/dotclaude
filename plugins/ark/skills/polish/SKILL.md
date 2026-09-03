@@ -45,7 +45,8 @@ after committing round 1 even when fixes landed — the report says what was
 fixed and that the fixes are unverified by a second round, so the human can
 decide whether a full run is worth it. A quick run counts as having polished
 the branch tip for `ark:pr`'s "already covered" check, with the caveat
-carried into its verdict.
+carried into its verdict — unless it parked something, in which case its
+verdict is not-ready like any blocked run.
 
 **Upgrading a quick run.** A full invocation on a tip a quick run already
 covered this session does not repeat round 1. It runs exactly what quick
@@ -53,8 +54,10 @@ skipped: the external CLI leg over the full branch diff (`<BASE>...HEAD`)
 concurrently with the verification round (Step 2's native and corpus legs,
 scoped to the quick run's fix commits — use that run's `ROUND_START`), then
 triages the combined findings as round 2 and stops under the normal Step 5
-rules. If the quick run committed nothing, only the external leg has work
-to do. Every step below applies to both modes unless it says otherwise.
+rules. The verification legs carry round 2's severity filter for untouched
+code; the external leg does **not** — it is seeing the branch for the first
+time, so every finding it reports is triaged in full. If the quick run
+committed nothing, only the external leg has work to do. Every step below applies to both modes unless it says otherwise.
 
 ## Ground rules (read first, they govern every step)
 
@@ -456,10 +459,12 @@ regardless. **Stop when any of these hits:**
   Do not patch it again: either make the structural change Step 3a should
   have chosen, or park it for the human. A third patch on one area is the
   loop this skill exists to prevent.
-- **Findings only on round-introduced code** — every finding this round
-  is on something an earlier round added. The branch is being reviewed
-  into a shape the intent never asked for; stop, name the expansion, and
-  put its removal to the human.
+- **Findings only on expansion** — every finding this round is on code an
+  earlier round added *that does not serve the intent summary*. The branch
+  is being reviewed into a shape the intent never asked for; stop, name
+  the expansion, and put its removal to the human. A defect in an
+  in-scope fix from round 1 is not this case: that code serves the
+  intent, and round 2 exists precisely to verify it — triage it normally.
 - **Round cap** — two rounds. A branch that still has real findings after a
   full review and a verification round is disagreeing with its reviewers
   about something a human should look at; say what it is.
@@ -474,5 +479,7 @@ and exactly what needs the human's input. End with an explicit readiness
 verdict: after a clean or diminishing-returns exit the branch is ready for
 `/ark:pr`; after a blocked or round-capped exit, say plainly that it is
 **not** ready and what must be resolved first. A quick run that committed
-fixes is ready with a caveat: say the fixes had no verification round and
-that `/ark:polish` (full) is the way to get one.
+fixes *and parked nothing* is ready with a caveat: say the fixes had no
+verification round and that `/ark:polish` (full) is the way to get one. A
+quick run that parked anything is not ready, caveat or no caveat — the
+blocked exit above wins.
