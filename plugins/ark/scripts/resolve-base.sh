@@ -7,19 +7,19 @@
 #
 #   BASE=$(bash resolve-base.sh)        # e.g. origin/main
 #
-# Exit 0 with the ref on stdout; 2 if the fetch fails or the ref does not
-# resolve to a commit.
+# One mechanism, no cached state: the remote is asked which branch is HEAD
+# (so a rename is seen immediately), and that branch is fetched into its
+# remote-tracking ref explicitly (so a --single-branch clone, whose fetch
+# refspec covers only the feature branch, still gets it).
+#
+# Exit 0 with the ref on stdout; 2 if the remote cannot be queried or the
+# fetch fails.
 set -uo pipefail
-git fetch -q origin || { echo "resolve-base: git fetch origin failed" >&2; exit 2; }
-# A plain fetch never updates the cached refs/remotes/origin/HEAD, so after a
-# default-branch rename it keeps pointing at the old branch; --auto asks the
-# remote which branch is HEAD now. Failure is tolerated: the fallbacks below
-# still resolve the base.
-git remote set-head origin --auto >/dev/null 2>&1 || true
-BASE=$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null ||
-  git ls-remote --symref origin HEAD 2>/dev/null |
-  awk '/^ref:/ { sub("refs/heads/", "origin/", $2); print $2 }')
-BASE=${BASE:-origin/main}
-git rev-parse --verify -q "$BASE^{commit}" >/dev/null ||
-  { echo "resolve-base: '$BASE' does not resolve to a commit" >&2; exit 2; }
-echo "$BASE"
+name=$(git ls-remote --symref origin HEAD 2>/dev/null |
+  awk '/^ref: refs\/heads\// { sub("refs/heads/", "", $2); print $2; exit }')
+[[ -n "$name" ]] || { echo "resolve-base: cannot determine origin's default branch (git ls-remote --symref origin HEAD)" >&2; exit 2; }
+git fetch -q origin "+refs/heads/$name:refs/remotes/origin/$name" ||
+  { echo "resolve-base: fetching origin/$name failed" >&2; exit 2; }
+git rev-parse --verify -q "origin/$name^{commit}" >/dev/null ||
+  { echo "resolve-base: 'origin/$name' does not resolve to a commit" >&2; exit 2; }
+echo "origin/$name"

@@ -82,7 +82,9 @@ while IFS= read -r sha; do
     fi
     # Patterns are passed with -e: LINE_RE begins with "-----BEGIN", which
     # grep would otherwise parse as an option.
-    patch=$(git show --format= --no-color "$sha" -- "$f"); git_ok $?
+    # --literal-pathspecs: a name such as ":(top)x.txt" is a filename here,
+    # not pathspec magic.
+    patch=$(git --literal-pathspecs show --format= --no-color "$sha" -- "$f"); git_ok $?
     lines=$(printf '%s\n' "$patch" | grep -E -e '^\+' | grep -Ev -e '^\+\+\+' | grep -E -e "$LINE_RE"); scan_ok $?
     if [[ -n "$lines" ]]; then
       while IFS= read -r l; do echo "commit $short: $f: ${l#+}"; done <<<"$lines"

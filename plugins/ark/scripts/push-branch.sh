@@ -7,13 +7,19 @@
 #   bash push-branch.sh <base>                          # base from resolve-base.sh
 #   bash push-branch.sh <base> --override-scan "<why>"  # push despite hits
 #
-# Destination: the branch's configured upstream when it has one and it is
-# not the base (so a local `review-x` tracking `origin/pr-branch` updates
-# the PR, not a new remote branch named after the local one); otherwise a
-# same-named branch on origin, with upstream set. A branch created with
-# `--track origin/main` has the base as its upstream and must never be
-# pushed there -- it takes the same-name path. Pushing the base branch
-# itself is refused outright: ark skills push feature branches only.
+# Destination: the branch's configured upstream when it has one (so a local
+# `review-x` tracking `origin/pr-branch` updates the PR, not a new remote
+# branch named after the local one); otherwise a same-named branch on
+# origin, with upstream set.
+#
+# Invariant, checked at the destination rather than by comparing names: an
+# ark skill never pushes to a remote's default branch, nor to the base it
+# was given. The destination remote is asked which branch is its HEAD, and
+# the base is compared by remote URL plus ref, so `upstream/main` is
+# recognised as the same thing as `origin/main` when both names point at
+# one repository. An upstream that fails the invariant (a branch created
+# with `--track origin/main`) takes the same-name path instead; a branch
+# that would fail it there too (pushing main itself) is refused.
 #
 # --override-scan is the human's decision, never the agent's: the skills
 # only pass it after showing the human the hits and being told to push. The
@@ -47,13 +53,24 @@ if [[ $ec -eq 1 ]]; then
 elif [[ $ec -ne 0 ]]; then
   echo "push-branch: scan failed (status $ec); nothing pushed" >&2; exit 2
 fi
+# protected <remote> <refs/heads/...> -> 0 iff that destination is the
+# remote's default branch or the base this run was given.
+base_remote=${BASE%%/*}; base_ref="refs/heads/${BASE#*/}"
+protected() {
+  local r=$1 ref=$2 head
+  head=$(git ls-remote --symref "$r" HEAD 2>/dev/null | awk '/^ref: /{print $2; exit}')
+  [[ -n "$head" && "$ref" == "$head" ]] && return 0
+  [[ "$ref" == "$base_ref" ]] || return 1
+  [[ "$r" == "$base_remote" ]] && return 0
+  [[ "$(git remote get-url "$r" 2>/dev/null)" == "$(git remote get-url "$base_remote" 2>/dev/null)" ]]
+}
+
 remote=$(git config --get "branch.$BRANCH.remote" || true)
 merge=$(git config --get "branch.$BRANCH.merge" || true)
-upstream=""; [[ -n "$remote" && -n "$merge" ]] && upstream="$remote/${merge#refs/heads/}"
-if [[ -n "$upstream" && "$upstream" != "$BASE" ]]; then
-  echo "push-branch: pushing to configured upstream $upstream"
+if [[ -n "$remote" && -n "$merge" ]] && ! protected "$remote" "$merge"; then
+  echo "push-branch: pushing to configured upstream $remote/${merge#refs/heads/}"
   git push "$remote" "HEAD:$merge" || { echo "push-branch: push failed" >&2; exit 2; }
 else
-  [[ "origin/$BRANCH" != "$BASE" ]] || { echo "push-branch: refusing to push the base branch $BASE" >&2; exit 2; }
+  protected origin "refs/heads/$BRANCH" && { echo "push-branch: refusing to push $BRANCH — it is origin's default branch or the base" >&2; exit 2; }
   git push -u origin "$BRANCH" || { echo "push-branch: push failed" >&2; exit 2; }
 fi

@@ -64,6 +64,13 @@ out=$(bash "$SCRIPT" main); ec=$?
 ck "exit code" "$ec" "1"
 has "hit names the literal path" "café.txt: x = " "$out"
 
+hdr "TEST 4c: filename that looks like pathspec magic is treated literally"
+git checkout -qb magic main
+printf 'x = "%s"\n' "$TOKEN" > ':(top)x.txt' && git add -- ':(literal):(top)x.txt' && git commit -qm magic
+out=$(bash "$SCRIPT" main); ec=$?
+ck "exit code" "$ec" "1"
+has "hit names the literal path" ":(top)x.txt: x = " "$out"
+
 hdr "TEST 5: credential in a commit message, clean tree -> found"
 git checkout -qb msg main
 echo ok > m.txt && git add . && git commit -qm "note: token $TOKEN"

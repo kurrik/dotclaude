@@ -118,11 +118,28 @@ ck "upstream now points at it" "$(git rev-parse --abbrev-ref @{u})" "origin/trac
 git checkout -q main 2>/dev/null || git checkout -q -b main origin/main
 bash "$D/push-branch.sh" origin/main >/dev/null 2>&1; ck "pushing main itself -> 2" "$?" "2"
 
+hdr "push-branch: an alias remote for the same repository is recognised as the base"
+git remote add upstream "$ROOT/origin.git" && git fetch -q upstream
+git checkout -q -b tracks-alias --track upstream/main
+echo u > u && git add . && git commit -qm u
+MAIN_BEFORE=$(git ls-remote origin refs/heads/main | cut -f1)
+bash "$D/push-branch.sh" origin/main >/dev/null 2>&1; ck "pushed" "$?" "0"
+ck "main untouched via alias" "$(git ls-remote origin refs/heads/main | cut -f1)" "$MAIN_BEFORE"
+ck "same-named branch created instead" "$(git ls-remote origin refs/heads/tracks-alias | cut -f1)" "$(git rev-parse HEAD)"
+git remote remove upstream
+
 hdr "resolve-base: follows a default-branch rename on the remote"
 git -C "$ROOT/origin.git" symbolic-ref HEAD refs/heads/feat
 ck "base after rename" "$(bash "$D/resolve-base.sh")" "origin/feat"
 git -C "$ROOT/origin.git" symbolic-ref HEAD refs/heads/main
 ck "base after rename back" "$(bash "$D/resolve-base.sh")" "origin/main"
+
+hdr "resolve-base: works in a --single-branch clone of a feature branch"
+git clone -q --single-branch --branch feat "$ROOT/origin.git" "$ROOT/single" && cd "$ROOT/single" || fatal single
+ck "no origin/main before" "$(git rev-parse -q --verify origin/main >/dev/null 2>&1 && echo yes || echo no)" "no"
+ck "base" "$(bash "$D/resolve-base.sh")" "origin/main"
+ck "origin/main now present" "$(git rev-parse -q --verify origin/main >/dev/null 2>&1 && echo yes)" "yes"
+cd "$ROOT/w" || fatal back
 
 hdr "push-branch: a local branch tracking a differently named remote branch updates that branch"
 git checkout -q -b local-review --track origin/feat
