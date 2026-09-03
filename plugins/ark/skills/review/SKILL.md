@@ -6,7 +6,9 @@ description: Fetch PR review comments, address them, and push the fixes. Use whe
 Do the following steps in order. This skill talks to GitHub's GraphQL API directly through `gh api` — it needs an authenticated `gh` CLI but no `gh` extensions.
 
 1. **Identify the current PR and its intent.** Get the PR number, repo (owner/repo), and description for the current branch:
-   gh pr view --json number,title,body,url,headRepositoryOwner,headRepository
+   gh pr view --json number,title,body,url,baseRefName,headRepositoryOwner,headRepository
+
+   `origin/<baseRefName>` is `<base>` below, after `git fetch origin <baseRefName>`.
 
    Read the title and body carefully — they state what the PR is trying to accomplish and often the design decisions behind it. Skim the PR's diff (`gh pr diff`) so you understand the shape of the change as a whole. You will judge every review comment against this context, so build it before reading the feedback.
 
@@ -50,12 +52,12 @@ Do the following steps in order. This skill talks to GitHub's GraphQL API direct
 
 4. **Holistic review pass before committing.** Once all fixes are made, review the complete result — this is what catches the "feedback on the fixes" loop:
 
-   - Re-read the full working diff (`git diff` plus anything staged), not just the lines you touched. Check that the individual fixes compose coherently: consistent naming, no duplicated logic, no fix that contradicts another.
+   - Re-read the complete resulting PR diff, merge base to working tree — `git diff "$(git merge-base <base> HEAD)"`, which includes staged and unstaged fixes — not just the fix hunks: a small fix can contradict an earlier change elsewhere in the PR, and for ordinary fixes this pass is the only post-fix review there is. Check that the individual fixes compose coherently: consistent naming, no duplicated logic, no fix that contradicts another.
    - Verify each fix still serves the PR's stated goals from step 1, and that none quietly changed behavior the PR didn't intend to change.
    - Review your own changes as a skeptical reviewer would — if a fix would itself draw an obvious comment (dead code, leftover debug output, inconsistent style with the surrounding file, missing edge case), fix that now rather than in the next cycle.
    - Run the project's tests/lint/build if available, and fix any failures before committing.
 
-5. **Commit, polish, then push.** Stage all changes and write a commit message like `address PR review feedback`. Then, unless I explicitly told you to skip it (e.g. "without polish", "just push"), run the `ark:polish` skill before pushing — it re-reviews the whole branch diff (which now includes the fixes) with parallel reviewers and commits any further fixes with an audit trail, catching "feedback on the fixes" locally instead of in the next review round. If polish exits blocked or round-capped, stop and ask me instead of pushing. Then push to the remote branch, and fold anything polish fixed or declined into the step 6 replies and the step 8 summary.
+5. **Commit, then decide about polish, then push** — in that order; the push is the last thing this step does. Stage all changes and write a commit message like `address PR review feedback`. The step 4 holistic pass is the review of the fixes — `ark:polish` is **not** run here by default; it is a full multi-reviewer loop and the fix set is usually a few hunks. Offer it once, before pushing, only when the fixes changed the *shape* of the PR: step 3 chose a structural fix over the suggested patch, or one fix touched more than a handful of files. That shape test is the whole trigger — `ark:pr`'s line-and-file thresholds do not apply here, since a one-file structural rewrite is exactly the case worth a second look. Ask once with the host's question tool (`AskUserQuestion` in Claude Code), saying which fix reshaped the PR, with three options: a full `ark:polish` pass, a quick pass (`ark:polish --quick`, one round, native and corpus reviewers only — the default recommendation here, since the fix set is small), or push without either. If the session cannot ask, push and say in the summary that a pass was recommended and why. If I explicitly ask for polish, run it; if I said to skip it ("without polish", "just push"), don't offer. If polish runs and exits blocked or round-capped, stop and ask me instead of pushing; otherwise fold anything it fixed or declined into the step 6 replies and the step 8 summary. Only then push to the remote branch.
 
 6. **Respond to review comments — drive all replies through a single pending review.** Create one pending review, attach every reply to it via its `pullRequestReviewId`, and submit once at the end. If you instead post replies without an explicit review id, they can land as dangling PENDING comments with no parent review — and GitHub has no way to attach them to a review afterward (the UI's "Finish your review" button only submits pending *reviews*, not loose comments), so cleaning up means re-posting and deleting them. Always pass the review id.
 

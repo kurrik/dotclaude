@@ -1,13 +1,63 @@
 ---
 name: polish
-description: Frontload the PR review cycle before pushing a branch. Runs up to three reviewers in parallel subagents (the current Claude, Codex, or Grok host's native reviewer, a preferred cross-agent CLI review if installed, and a check against a layered review-principles corpus — general principles bundled with this skill, plus machine-level ~/.claude/review-principles and the repo's .claude/review-principles when present), triages and fixes their findings autonomously without expanding scope, commits each round with the feedback and justification in the message, and loops until findings are exhausted, nitty, or need a human. Use before /ark:pr, or whenever asked to polish a branch for review.
+argument-hint: "[--quick]"
+description: Frontload the PR review cycle before pushing a branch. Runs up to three reviewers in parallel subagents (the current Claude, Codex, or Grok host's native reviewer, a preferred cross-agent CLI review if installed, and a check against a layered review-principles corpus — general principles bundled with this skill, plus machine-level ~/.claude/review-principles and the repo's .claude/review-principles when present), reads the branch as a whole for structural fixes before patching individual findings, triages and fixes autonomously without expanding scope, commits each round with the feedback and justification in the message, and stops after at most two rounds; --quick runs a single round with the native and corpus legs only. Costly — run it only when the human invokes /ark:polish, or accepts the one-time offer ark:pr makes for a large or sensitive unreviewed diff, or the one ark:review makes when its fixes reshaped the PR. Never run it unprompted.
 ---
 
 # ark:polish — frontload the review cycle
 
 Move review rounds that would otherwise happen on the PR — human back-and-forth,
 paid automated reviewers, push/CI round-trips — into one local loop before the
-PR exists. Reviews here are cheap and immediate; reviews on GitHub are not.
+PR exists. Reviews here are cheaper and faster than reviews on GitHub, but they
+are not free: every round is several full-diff subagent reviews plus a triage.
+
+## When this runs
+
+Polish is **opt-in per branch**, not a step on every PR:
+
+- The human invoked `/ark:polish` (or `$ark:polish`), or
+- `ark:pr` sized the unreviewed diff (large, or in a sensitive area) or
+  `ark:review` found its fixes had reshaped the PR, offered a single polish
+  pass, and the human accepted.
+
+Never start polish on your own judgment, and never repeat work already
+done on the same branch tip. What "already done" means depends on the mode
+of the earlier run (see **Modes**): a tip that a *full* run finished is not
+reviewed again — say so and stop; a tip that only a *quick* run covered may
+be upgraded by an explicit full invocation, which runs just the parts quick
+skipped rather than starting over.
+
+## Modes
+
+The invocation's arguments select the mode. `--quick` is the only argument
+this skill takes; anything else (a typo such as `--quik`, a stray word) is
+a usage error — stop and say so rather than falling through to the costlier
+full mode.
+
+| Mode | Invocation | Rounds | Legs |
+|---|---|---|---|
+| Full (default) | `/ark:polish` | up to 2 — a full round, then a verification round | native + external CLI + corpus, then native + corpus |
+| Quick | `/ark:polish --quick` | exactly 1 | native + corpus; the external CLI leg is never launched |
+
+Quick mode is the cheap first look: same ground rules, same architecture
+pass, same commit format, but one round and no cross-agent review. It stops
+after committing round 1 even when fixes landed — the report says what was
+fixed and that the fixes are unverified by a second round, so the human can
+decide whether a full run is worth it. A quick run counts as having polished
+the branch tip for `ark:pr`'s "already covered" check, with the caveat
+carried into its verdict — unless it parked something, in which case its
+verdict is not-ready like any blocked run.
+
+**Upgrading a quick run.** A full invocation on a tip a quick run already
+covered this session does not repeat round 1. It runs exactly what quick
+skipped: the external CLI leg over the full branch diff (`<BASE>...HEAD`)
+concurrently with the verification round (Step 2's native and corpus legs,
+scoped to the quick run's fix commits — use that run's `ROUND_START`), then
+triages the combined findings as round 2 and stops under the normal Step 5
+rules. The verification legs carry round 2's severity filter for untouched
+code; the external leg does **not** — it is seeing the branch for the first
+time, so every finding it reports is triaged in full. If the quick run
+committed nothing, only the external leg has work to do. Every step below applies to both modes unless it says otherwise.
 
 ## Ground rules (read first, they govern every step)
 
@@ -18,7 +68,24 @@ PR exists. Reviews here are cheap and immediate; reviews on GitHub are not.
 - **No scope expansion.** Reviewer suggestions that grow the diff beyond the
   intent are declined — *unless* they raise a significant security, cost,
   performance, or functionality concern. "This could also be refactored" is a
-  decline; "this leaks a credential" is a fix.
+  decline; "this leaks a credential" is a fix. The trap is that expansion
+  arrives one *valid* finding at a time: a finding on code an earlier round
+  added is valid and still not a reason to keep that code. Validity is not
+  the test; the intent summary is. Step 3a audits the trajectory for this
+  before any fix, and a round whose findings all land on round-introduced
+  code is a stop condition (Step 5), not a work list.
+- **Structure before patches.** Findings are symptoms; the fix is chosen at
+  the level of the cause. Before patching anything, cluster the round's
+  findings by root cause and ask, per cluster, whether one structural change
+  — a type that cannot represent the invalid state, a single chokepoint, a
+  guarantee moved to the write, one shared implementation — makes the whole
+  class unexpressible. When it does and it fits the intent, make that change
+  instead of the patches. Iterating on behavior patches is the most expensive
+  thing this loop can do.
+- **One implementation per rule.** A validation, allow-list, or derivation
+  that restates logic living elsewhere is a drift bug waiting for its round.
+  If the diff encodes the same rule in two places, one must call or derive
+  from the other; if it can't, that is a finding, not a style note.
 - **Fix classes, not instances.** When a finding is valid, sweep the whole
   branch diff for other places the same root cause applies and fix them all in
   the same commit. Moving a problem elsewhere is not a fix.
@@ -75,11 +142,15 @@ Do these in order — each depends on the one before it:
    committed in item 3 above — **stop and say so**; that means a broken BASE
    or a branch with nothing on it, never "reviewed and clean."
 
+   Record `ROUND_START=$(git rev-parse HEAD)` — round 2 reviews from here.
+
 ## Step 2 — Run the reviewers in parallel
 
-Up to three legs. First identify the current host from the active session —
-Claude Code, Codex, or Grok — **not** from which executables happen to be on
-`PATH`. Then select the native and external reviewers from this matrix:
+Up to three legs in round 1; two in round 2 (see **Round 2 is a
+verification round** below); two in quick mode, which has no round 2. First identify the current host from the
+active session — Claude Code, Codex, or Grok — **not** from which
+executables happen to be on `PATH`. Then select the native and external
+reviewers from this matrix:
 
 | Current host | Native reviewer | Preferred external CLI | Fallback |
 |---|---|---|---|
@@ -107,16 +178,38 @@ legs: that mode permits reading, searching, and shell inspection while
 withholding file-edit tools. Retrieve every result with
 `get_command_or_subagent_output` after all legs have launched.
 
+**Every leg reports in the same compact shape** — it keeps triage cheap and
+makes the legs dedupable:
+
+```
+## Findings
+| # | Sev | file:line | Finding | Concrete failure scenario |
+## Architecture
+<1–3 observations about the change as a whole, or "none">
+## Checked
+- <area>: clean
+```
+
+Findings are correctness, security, performance, and convention defects
+only, each adversarially self-verified before it is reported; no style. The
+**Architecture** section is where the reviewer steps back from the hunks and
+reads the branch as one design. It answers, briefly: Which findings share a
+root cause? Where is a guarantee held by convention (a comment, a counter,
+callers remembering to check) rather than by construction? Where does the
+diff restate a rule that already exists elsewhere — a validation mirroring
+the logic it guards, a client re-deriving a server rule, an enum copied into
+a list — without sharing code? What one change would make the largest class
+of these findings impossible? "None" is a valid answer; a paragraph of
+generalities is not.
+
 1. **Native/internal reviewer** (always available) — run the current host's
    internal review through its general-purpose subagent mechanism (Claude's
    Agent tool in Claude Code; Codex's subagent delegation in Codex; Grok's
    `spawn_subagent` in Grok). Have it review the full branch diff
-   (`git diff -M <BASE>...HEAD`) as a rigorous code reviewer: correctness,
-   security, performance, and convention findings only; each finding needs
-   severity, file:line, and a concrete failure scenario; each must be
-   adversarially self-verified before reporting; clean areas get one "checked"
-   line. Record this leg as `claude-native`, `codex-native`, or `grok-native`
-   according to the current host.
+   (`git diff -M <BASE>...HEAD`) as a rigorous code reviewer in the shape
+   above, with the intent summary as context so it can judge the design and
+   not just the hunks. Record this leg as `claude-native`, `codex-native`, or
+   `grok-native` according to the current host.
 
    In Claude Code or Grok, do NOT try to invoke the host's built-in
    `code-review` skill — it may be `disable-model-invocation` and reserved for
@@ -126,10 +219,13 @@ withholding file-edit tools. Retrieve every result with
    spawning a duplicate reviewer. A report from before this round's fixes is
    stale — spawn a fresh reviewer; this check re-applies every round.
 
-2. **External CLI reviewer** (if the opposite CLI is installed) — launch it
-   inside a general-purpose native subagent so it runs concurrently with the
-   other legs and its failure stays isolated. Record the leg as `codex-cli`
-   or `claude-cli` according to the executable that actually ran.
+2. **External CLI reviewer** (full mode, round 1 only, if the opposite CLI
+   is installed; never in quick mode) — launch it inside a general-purpose native subagent so it runs
+   concurrently with the other legs and its failure stays isolated. Record
+   the leg as `codex-cli` or `claude-cli` according to the executable that
+   actually ran. It runs in round 1 only: a cross-agent review of the whole
+   diff is the expensive leg, and round 2 verifies fixes rather than
+   re-discovering the branch.
 
    **From Claude Code, or from Grok when Codex is available**, run from the
    repo root:
@@ -149,7 +245,7 @@ withholding file-edit tools. Retrieve every result with
 
    ```bash
    claude -p \
-     "Review the full branch diff from <BASE> through HEAD. Run git diff -M <BASE>...HEAD, inspect the relevant files, and report only correctness, security, performance, or repository-convention defects. For every finding give severity, file:line, and a concrete failure scenario, and adversarially verify it before reporting. Do not modify files. Include one short checked line for areas that are clean." \
+     "Review the full branch diff from <BASE> through HEAD. Run git diff -M <BASE>...HEAD, inspect the relevant files, and report only correctness, security, performance, or repository-convention defects. For every finding give severity, file:line, and a concrete failure scenario, and adversarially verify it before reporting. Then add an Architecture section: 1-3 observations about the change as a whole — findings that share a root cause, guarantees held by convention rather than construction, and logic restated in two places without shared code — or 'none'. Do not modify files. Include one short checked line for areas that are clean." \
      --permission-mode dontAsk --no-session-persistence \
      --allowedTools "Bash(git diff -M <BASE>...HEAD)" \
      --tools Bash,Read,Grep,Glob
@@ -162,8 +258,13 @@ withholding file-edit tools. Retrieve every result with
    `Bash(git diff *)` also allow write-capable options like `--output`.
 
    Give either external CLI call a 10-minute timeout — reviews take minutes.
-   The subagent returns the findings verbatim, plus a one-line note if the CLI
+   The subagent returns the findings verbatim (reshaped into the compact
+   shape above if the CLI's output differs), plus a one-line note if the CLI
    errored (sandbox, auth, network, timeout) rather than papering over it.
+   `codex review` takes no custom instructions, so this leg's Architecture
+   section is written as "not assessed — external CLI", never "none": the
+   native and corpus legs carry the whole-design read, and Step 3a clusters
+   the external leg's findings by root cause alongside theirs.
 
 3. **Corpus reviewer** (always available) — the corpus is layered across up
    to three directories, most general first:
@@ -187,9 +288,12 @@ withholding file-edit tools. Retrieve every result with
      suspend a bundled rule.
    - Read the full branch diff (`git diff -M <BASE>...HEAD`).
    - For each principle, check whether the diff violates it. Report only real
-     violations, citing the principle filename and the offending hunk. Confirm
-     principles that were checked and hold — one line each — so silence is
-     distinguishable from "not checked".
+     violations, citing the principle filename and the offending hunk, in the
+     compact shape above (the principle filename goes in the Finding column).
+     Its Architecture section names the principles whose violations would
+     collapse together under one structural change. Confirm principles that
+     were checked and hold — one line each — so silence is distinguishable
+     from "not checked".
 
 Wait for every launched leg to complete before triaging: the triage step
 needs the full set to dedupe overlapping findings and spot patterns no single
@@ -209,10 +313,74 @@ failure, but list only `claude-cli` as the external reviewer that actually ran.
 Do not fall back after Codex returned findings, even if those findings are
 empty; an empty successful review is still a completed second opinion.
 
+**Round 2 is a verification round.** It runs only the native and corpus
+legs, and each gets the round-1 findings with their triage verdicts as
+context. They read the fix commits first (`git diff -M <ROUND_START>..HEAD`)
+and the full branch diff only as far as needed to check three things: each
+fix actually closes its finding (not just the flagged line — the class);
+the fix commits introduce no new instance of a class already flagged on the
+branch; and nothing an earlier fix established was dropped by a later one.
+Anything *inside the fix commits* is reported at every severity — fix code
+is new code, and a patch that also changed an adjacent condition is exactly
+what this round exists to catch. The severity filter applies only to code
+the fixes did not touch: pre-existing findings round 1 missed are reported
+at high severity only, so round 2 verifies rather than re-discovers. The
+one exception: if round 1's structural pass reshaped the branch (Step 3a
+chose a restructuring over patches), round 2 reviews the full diff again
+with the same two legs — a new shape deserves a fresh read.
+
 ## Step 3 — Triage and fix
 
-Merge the finding lists, dedupe (reviewers overlap heavily), then for each
-unique finding decide:
+Merge the finding lists and dedupe (reviewers overlap heavily). Then work in
+two passes — the order matters.
+
+### 3a — Architecture pass (before any fix)
+
+Start with the review trajectory, not the findings. The record is this
+branch's earlier `polish:` commits — always available from git — plus, when
+a PR exists *and* an authenticated `gh` is on this machine, its review
+threads (`gh pr view --json number`, then the GraphQL query in
+`ark:review` step 2); without `gh`, the commits and this session's own
+rounds are the record, and that is enough. Mark every finding by *what it landed on*: code that serves the intent
+summary, or code an earlier round introduced. A finding on
+round-introduced code is evidence about the expansion, not a defect to
+fix — see `audit-the-review-trajectory` in the corpus. If the diff has
+grown while the intent summary has not, the cluster to act on is the
+growth: remove it, and the findings on it close with it.
+
+Then take the remaining findings plus every leg's Architecture section and
+cluster by root cause, not by file. For each cluster, and for any single finding
+that lands on an area a previous round already fixed, decide the fix
+*level* before writing a line:
+
+- **Structural** — one change removes the whole class: a type or schema
+  that cannot represent the invalid state; one chokepoint (constructor,
+  parser, repository method) through which every path must go; the
+  guarantee moved to the state transition (a guarded write, a DB
+  constraint) instead of a check before it; one implementation that the
+  other copies call or derive from; an explicit state machine in place of
+  scattered flags. Choose this whenever it fits the intent summary and the
+  cluster has two or more members, or is a repeat of an earlier round.
+- **Patch** — a local fix at the flagged site plus its siblings (the
+  fix-classes ground rule). Acceptable for a singleton finding with no
+  structural cause.
+- **Park** — the structural fix is right but exceeds the intent (a schema
+  redesign, a new abstraction the branch didn't set out to introduce).
+  Record the structural option in the report for the human; do not
+  substitute a stack of patches for it.
+
+Also run the one-implementation check here even when no reviewer raised it:
+does the diff add a validation, allow-list, mapping, or derived value that
+restates logic owned elsewhere (the business rule it guards, a server-side
+rule, a schema, an enum)? Point the copy at the owner or derive it; a
+comment saying "keep in sync with X" is the finding, not the fix.
+
+Write the pass down — one line per cluster with the chosen level and why —
+it goes into the commit message and the report.
+
+### 3b — Per-finding triage
+
+For each unique finding not already resolved by a structural change:
 
 | Verdict | Action |
 |---|---|
@@ -227,12 +395,13 @@ After fixing, do a holistic pass over the *new* full diff: fixes must compose
 Then run the repo's checks and fix failures: use whatever the repo's
 CLAUDE.md / AGENTS.md / contributing docs name as the standard pre-commit
 check (lint, typecheck, fast tests); if nothing is documented, run the
-project's standard build/test command for its toolchain. If Step 1 left
-unrelated changes unstaged, the checks are validating the working tree, not
-the commit — before acting on a failure, confirm it comes from the branch
-diff rather than the unrelated files (does it implicate them? does it
-reproduce without them, e.g. in a clean worktree at HEAD?); a failure owned
-by the unrelated files gets a note in the report, not a fix here.
+project's standard build/test command for its toolchain. Skip the checks
+when the round changed nothing. If Step 1 left unrelated changes unstaged,
+the checks are validating the working tree, not the commit — before acting
+on a failure, confirm it comes from the branch diff rather than the
+unrelated files (does it implicate them? does it reproduce without them,
+e.g. in a clean worktree at HEAD?); a failure owned by the unrelated files
+gets a note in the report, not a fix here.
 
 ## Step 4 — Commit the round
 
@@ -246,13 +415,20 @@ commit message must carry the audit trail:
 ```
 polish: address round N review feedback
 
+Structure:
+- <cluster> — structural: <the change and the class it removes>
+- <cluster> — patch: <why no structural cause>
+
 - <finding, one line> — <what was done and why>
 - <finding declined> — declined: <one-line justification>
 
 Reviewers: codex-native, claude-cli, review-principles
+Mode: full
 ```
 
 List only the legs that actually ran (see the failure rule in Step 2).
+`Mode:` is `full` or `quick`; keep the `polish:` subject prefix in both —
+`ark:pr` and `ark:improve-polish` find polish commits by it.
 
 If a finding revealed a lesson not already covered by any corpus layer,
 route it by scope. Repo-specific lessons: if the repo has a
@@ -268,8 +444,9 @@ mid-polish — list them in the report as candidates for those layers.
 
 ## Step 5 — Loop or stop
 
-Loop back to Step 2 (reviewers re-review the whole branch diff, which now
-includes the fixes). **Stop when any of these hits:**
+After round 1, run round 2 (the verification round in Step 2) only if round
+1 committed fixes — and never in quick mode, which ends after round 1
+regardless. **Stop when any of these hits:**
 
 - **Blocked on a human** — a parked finding needs a design decision, or a
   reviewer raised something that would mean significant rework or a direction
@@ -278,15 +455,31 @@ includes the fixes). **Stop when any of these hits:**
   realistic use, or re-litigation of already-declined items. Say so and stop;
   the goal is shipping the core feature promptly, not a zero-findings state.
 - **Clean round** — no findings above the bar. Done.
-- **Round cap** — default 3 rounds. More than that means the reviewers and the
-  branch disagree about something a human should look at.
+- **Same area, second time** — round 2 re-flags an area round 1 patched.
+  Do not patch it again: either make the structural change Step 3a should
+  have chosen, or park it for the human. A third patch on one area is the
+  loop this skill exists to prevent.
+- **Findings only on expansion** — every finding this round is on code an
+  earlier round added *that does not serve the intent summary*. The branch
+  is being reviewed into a shape the intent never asked for; stop, name
+  the expansion, and put its removal to the human. A defect in an
+  in-scope fix from round 1 is not this case: that code serves the
+  intent, and round 2 exists precisely to verify it — triage it normally.
+- **Round cap** — two rounds. A branch that still has real findings after a
+  full review and a verification round is disagreeing with its reviewers
+  about something a human should look at; say what it is.
 
 ## Step 6 — Report
 
-Summarize: rounds run, which reviewer legs ran (and which were skipped or
-failed), findings fixed / declined / parked per round (with the one-line
-reasons), any new principle files added, and exactly what needs the human's
-input. End with an explicit readiness verdict: after a clean or
-diminishing-returns exit the branch is ready for `/ark:pr`; after a blocked
-or round-capped exit, say plainly that it is **not** ready and what must be
-resolved first.
+Summarize: the mode, rounds run, which reviewer legs ran (and which were skipped or
+failed), the architecture pass (each cluster and the level chosen — the
+structural changes made and the ones parked), findings fixed / declined /
+parked per round (with the one-line reasons), any new principle files added,
+and exactly what needs the human's input. End with an explicit readiness
+verdict: after a clean or diminishing-returns exit the branch is ready for
+`/ark:pr`; after a blocked or round-capped exit, say plainly that it is
+**not** ready and what must be resolved first. A quick run that committed
+fixes *and parked nothing* is ready with a caveat: say the fixes had no
+verification round and that `/ark:polish` (full) is the way to get one. A
+quick run that parked anything is not ready, caveat or no caveat — the
+blocked exit above wins.

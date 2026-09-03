@@ -21,6 +21,13 @@ history — the 36 PRs with ≥5 automated review rounds in the prior 3 months
 (of 135 multi-round PRs, 260 total). The "From the history" sections cite
 that repo's PRs; they're evidence the principle earns its place, and the
 concrete narratives ground the reviewer agent even outside the origin repo.
+Extended 2026-09-02 from the same repo's PRs #430–#457 (27 merged PRs,
+median 3 review rounds, four PRs accounting for 41 of ~94 rounds), which
+produced the two structural principles: restate-a-guard-on-its-second-finding
+and keep-one-implementation-per-rule. audit-the-review-trajectory was
+added 2026-09-03 from kurrik/dotclaude#18, the PR that introduced those
+two — thirteen review rounds in which the diff more than doubled with code
+the intent never asked for.
 
 ## File structure
 
