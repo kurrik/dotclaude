@@ -39,6 +39,10 @@ hdr "state: both keys but not in the trailer block -> not a record"
 echo b3 > b3 && git add . && git commit -qm $'docs: more\n\nMode: full\nVerdict: ready\n\nBut this paragraph comes after, so those are not trailers.'
 ck "state" "$(kv state "$(bash "$D/polish-state.sh" origin/main)")" "unreviewed"
 
+hdr "state: 'Verdict: ready for QA' with a Mode is a human trailer, not a record"
+echo b4 > b4 && git add . && git commit -qm $'docs: qa\n\nMode: full\nVerdict: ready for QA'
+ck "state" "$(kv state "$(bash "$D/polish-state.sh" origin/main)")" "unreviewed"
+
 hdr "record: round commit (pending) then amended to ready/quick -> unverified at head"
 echo c > c && git add . && git commit -qm $'polish: address round 1\n\n- fix\n\nReviewers: x\nMode: quick\nVerdict: pending'
 PEND=$(git rev-parse HEAD)
@@ -102,6 +106,23 @@ git checkout -q feat && echo h > h && git add . && git commit -qm h
 bash "$D/push-branch.sh" origin/main >/dev/null 2>&1; ck "pushed" "$?" "0"
 ck "remote has tip" "$(git ls-remote origin refs/heads/feat | cut -f1)" "$(git rev-parse HEAD)"
 git checkout -q --detach; bash "$D/push-branch.sh" origin/main >/dev/null 2>&1; ck "detached -> 2" "$?" "2"
+
+hdr "push-branch: a branch created --track origin/main never pushes to main"
+git checkout -q -b tracks-main --track origin/main
+echo t > t && git add . && git commit -qm t
+MAIN_BEFORE=$(git ls-remote origin refs/heads/main | cut -f1)
+bash "$D/push-branch.sh" origin/main >/dev/null 2>&1; ck "pushed" "$?" "0"
+ck "origin/main untouched" "$(git ls-remote origin refs/heads/main | cut -f1)" "$MAIN_BEFORE"
+ck "same-named remote branch created" "$(git ls-remote origin refs/heads/tracks-main | cut -f1)" "$(git rev-parse HEAD)"
+ck "upstream now points at it" "$(git rev-parse --abbrev-ref @{u})" "origin/tracks-main"
+git checkout -q main 2>/dev/null || git checkout -q -b main origin/main
+bash "$D/push-branch.sh" origin/main >/dev/null 2>&1; ck "pushing main itself -> 2" "$?" "2"
+
+hdr "resolve-base: follows a default-branch rename on the remote"
+git -C "$ROOT/origin.git" symbolic-ref HEAD refs/heads/feat
+ck "base after rename" "$(bash "$D/resolve-base.sh")" "origin/feat"
+git -C "$ROOT/origin.git" symbolic-ref HEAD refs/heads/main
+ck "base after rename back" "$(bash "$D/resolve-base.sh")" "origin/main"
 
 hdr "push-branch: a local branch tracking a differently named remote branch updates that branch"
 git checkout -q -b local-review --track origin/feat

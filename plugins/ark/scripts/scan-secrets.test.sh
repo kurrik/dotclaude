@@ -57,6 +57,13 @@ ck "exit code" "$ec" "1"
 has "pem header" "k.txt: -----BEGIN RSA PRIVATE KEY" "$out"
 has "aws key id" "aws.tf: id = \"AKIA" "$out"
 
+hdr "TEST 4b: non-ASCII filename is addressed literally, not C-quoted"
+git checkout -qb utf8 main
+printf 'x = "%s"\n' "$TOKEN" > 'café.txt' && git add . && git commit -qm utf8
+out=$(bash "$SCRIPT" main); ec=$?
+ck "exit code" "$ec" "1"
+has "hit names the literal path" "café.txt: x = " "$out"
+
 hdr "TEST 5: credential in a commit message, clean tree -> found"
 git checkout -qb msg main
 echo ok > m.txt && git add . && git commit -qm "note: token $TOKEN"

@@ -14,7 +14,15 @@ read_record() {
   t=$(git log -1 --format=%B "$1" | git interpret-trailers --parse) || return 1
   REC_MODE=$(printf '%s\n' "$t" | sed -n 's/^Mode: *//p' | tail -1)
   local vline; vline=$(printf '%s\n' "$t" | sed -n 's/^Verdict: *//p' | tail -1)
-  REC_VERDICT=${vline%% *}
-  REC_REASON=$(printf '%s' "$vline" | sed -n 's/^[^ ]* *(\(.*\))$/\1/p')
-  [[ "$REC_MODE" =~ ^(full|quick)$ && "$REC_VERDICT" =~ ^(ready|not-ready|pending)$ ]]
+  # The whole value must have the generated shape: exactly `ready` or
+  # `pending`, or `not-ready` with at most one parenthesised reason. A
+  # human trailer such as "Verdict: ready for QA" is not a record.
+  if [[ "$vline" =~ ^(ready|pending)$ ]]; then
+    REC_VERDICT=$vline; REC_REASON=""
+  elif [[ "$vline" =~ ^not-ready(\ \((.*)\))?$ ]]; then
+    REC_VERDICT=not-ready; REC_REASON=${BASH_REMATCH[2]}
+  else
+    REC_VERDICT=""; REC_REASON=""; return 1
+  fi
+  [[ "$REC_MODE" =~ ^(full|quick)$ ]]
 }

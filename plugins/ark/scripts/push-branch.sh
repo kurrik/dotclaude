@@ -7,10 +7,13 @@
 #   bash push-branch.sh <base>                          # base from resolve-base.sh
 #   bash push-branch.sh <base> --override-scan "<why>"  # push despite hits
 #
-# Destination: the branch's configured upstream when it has one (so a local
-# `review-x` tracking `origin/pr-branch` updates the PR, not a new remote
-# branch named after the local one); otherwise a same-named branch on
-# origin, with upstream set.
+# Destination: the branch's configured upstream when it has one and it is
+# not the base (so a local `review-x` tracking `origin/pr-branch` updates
+# the PR, not a new remote branch named after the local one); otherwise a
+# same-named branch on origin, with upstream set. A branch created with
+# `--track origin/main` has the base as its upstream and must never be
+# pushed there -- it takes the same-name path. Pushing the base branch
+# itself is refused outright: ark skills push feature branches only.
 #
 # --override-scan is the human's decision, never the agent's: the skills
 # only pass it after showing the human the hits and being told to push. The
@@ -46,9 +49,11 @@ elif [[ $ec -ne 0 ]]; then
 fi
 remote=$(git config --get "branch.$BRANCH.remote" || true)
 merge=$(git config --get "branch.$BRANCH.merge" || true)
-if [[ -n "$remote" && -n "$merge" ]]; then
-  echo "push-branch: pushing to configured upstream $remote/${merge#refs/heads/}"
+upstream=""; [[ -n "$remote" && -n "$merge" ]] && upstream="$remote/${merge#refs/heads/}"
+if [[ -n "$upstream" && "$upstream" != "$BASE" ]]; then
+  echo "push-branch: pushing to configured upstream $upstream"
   git push "$remote" "HEAD:$merge" || { echo "push-branch: push failed" >&2; exit 2; }
 else
+  [[ "origin/$BRANCH" != "$BASE" ]] || { echo "push-branch: refusing to push the base branch $BASE" >&2; exit 2; }
   git push -u origin "$BRANCH" || { echo "push-branch: push failed" >&2; exit 2; }
 fi

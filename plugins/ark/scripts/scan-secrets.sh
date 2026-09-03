@@ -70,7 +70,10 @@ while IFS= read -r sha; do
     hits=1
   fi
 
-  names=$(git show --format= --name-only "$sha"); git_ok $?
+  # -z: NUL-delimited literal paths. Without it git C-quotes names with
+  # non-ASCII or control characters ("caf\303\251.txt"), which then fail to
+  # address the file and its patch scans as empty.
+  names=$(git show --format= --name-only -z "$sha" | tr '\0' '\n'); git_ok "${PIPESTATUS[0]}"
   while IFS= read -r f; do
     [[ -n "$f" ]] || continue
     ignored "$f" && continue

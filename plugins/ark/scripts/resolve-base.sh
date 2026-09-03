@@ -11,6 +11,11 @@
 # resolve to a commit.
 set -uo pipefail
 git fetch -q origin || { echo "resolve-base: git fetch origin failed" >&2; exit 2; }
+# A plain fetch never updates the cached refs/remotes/origin/HEAD, so after a
+# default-branch rename it keeps pointing at the old branch; --auto asks the
+# remote which branch is HEAD now. Failure is tolerated: the fallbacks below
+# still resolve the base.
+git remote set-head origin --auto >/dev/null 2>&1 || true
 BASE=$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null ||
   git ls-remote --symref origin HEAD 2>/dev/null |
   awk '/^ref:/ { sub("refs/heads/", "origin/", $2); print $2 }')
