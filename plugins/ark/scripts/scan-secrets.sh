@@ -28,8 +28,10 @@ git rev-parse --verify -q "$BASE^{commit}" >/dev/null || { echo "scan-secrets: u
 git rev-parse --verify -q "$HEAD_REF^{commit}" >/dev/null || { echo "scan-secrets: unknown head '$HEAD_REF'" >&2; exit 2; }
 
 # Exact credential-store filenames. `.env` and `.env.<anything>` except the
-# documented template/example forms; key material; cloud credential files.
-PATH_RE='(^|/)\.env(\.[^/]+)?$|\.tfvars$|\.pem$|\.p12$|\.pfx$|\.jks$|(^|/)id_(rsa|dsa|ecdsa|ed25519)$|(^|/)credentials\.json$|(^|/)service-account[^/]*\.json$|(^|/)kubeconfig$|\.kubeconfig$|\.tfstate(\.backup)?$'
+# documented template/example forms; keystores; cloud credential files.
+# Not `.pem`: public certificates and CA bundles use it too, and a private
+# key inside one is caught by its header in the line scan.
+PATH_RE='(^|/)\.env(\.[^/]+)?$|\.tfvars$|\.p12$|\.pfx$|\.jks$|(^|/)id_(rsa|dsa|ecdsa|ed25519)$|(^|/)credentials\.json$|(^|/)service-account[^/]*\.json$|(^|/)kubeconfig$|\.kubeconfig$|\.tfstate(\.backup)?$'
 PATH_EXCLUDE_RE='\.env\.(template|example|sample|dist|schema)$|\.(template|example)\.tfvars$'
 # Formats that are credentials by construction.
 # Token prefixes are guarded by a non-identifier boundary: "disk-reclamation"

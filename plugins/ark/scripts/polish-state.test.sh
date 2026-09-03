@@ -70,6 +70,14 @@ ck "body carried" "$(git log -1 --format=%B | grep -c 'parked: the thing')" "1"
 echo g > g && git add . && git commit -qm followup
 ck "still not-ready after a follow-up" "$(kv state "$(bash "$D/polish-state.sh" origin/main)")" "not-ready"
 
+hdr "record: an ordinary commit ending in some Verdict: line is never amended"
+echo n > n && git add . && git commit -qm $'docs: notes\n\nVerdict: accepted'
+BEFORE=$(git rev-parse HEAD)
+bash "$D/polish-record.sh" --mode full --verdict ready >/dev/null
+ck "new commit on top, original untouched" "$(git rev-parse HEAD^)" "$BEFORE"
+ck "original trailer kept" "$(git log -1 --format=%B "$BEFORE" | grep -c 'Verdict: accepted')" "1"
+ck "finished record is not re-amended either" "$(bash "$D/polish-record.sh" --mode full --verdict ready | cut -d' ' -f1)" "recorded"
+
 hdr "record: full ready at head -> covered; pushed record is never amended"
 bash "$D/polish-record.sh" --mode full --verdict ready >/dev/null
 ck "state" "$(kv state "$(bash "$D/polish-state.sh" origin/main)")" "covered"
@@ -94,6 +102,13 @@ git checkout -q feat && echo h > h && git add . && git commit -qm h
 bash "$D/push-branch.sh" origin/main >/dev/null 2>&1; ck "pushed" "$?" "0"
 ck "remote has tip" "$(git ls-remote origin refs/heads/feat | cut -f1)" "$(git rev-parse HEAD)"
 git checkout -q --detach; bash "$D/push-branch.sh" origin/main >/dev/null 2>&1; ck "detached -> 2" "$?" "2"
+
+hdr "push-branch: a local branch tracking a differently named remote branch updates that branch"
+git checkout -q -b local-review --track origin/feat
+echo r > r && git add . && git commit -qm r
+bash "$D/push-branch.sh" origin/main >/dev/null 2>&1; ck "pushed" "$?" "0"
+ck "origin/feat updated" "$(git ls-remote origin refs/heads/feat | cut -f1)" "$(git rev-parse HEAD)"
+ck "no origin/local-review created" "$(git ls-remote --heads origin local-review | wc -l | tr -d ' ')" "0"
 
 rm -rf "$ROOT"
 printf '\n===== %d passed, %d failed =====\n' "$PASS" "$FAIL"

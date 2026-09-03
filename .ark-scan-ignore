@@ -1,2 +1,2 @@
-# Paths scan-secrets.sh skips: the scanner and its fixtures match their own patterns.
-plugins/ark/scripts/*
+# Paths scan-secrets.sh skips: this fixture file carries literal token and key-header samples.
+plugins/ark/scripts/scan-secrets.test.sh

@@ -37,15 +37,8 @@ BASE=${1:-}; HEAD_REF=${2:-HEAD}
 git rev-parse --verify -q "$BASE^{commit}" >/dev/null || { echo "polish-state: unknown base '$BASE'" >&2; exit 2; }
 HEAD_SHA=$(git rev-parse --verify -q "$HEAD_REF^{commit}") || { echo "polish-state: unknown head '$HEAD_REF'" >&2; exit 2; }
 
-# Parse the trailer block only; set REC_MODE / REC_VLINE; succeed iff the
-# commit is a complete, valid record.
-read_record() {
-  local t
-  t=$(git log -1 --format=%B "$1" | git interpret-trailers --parse) || return 1
-  REC_MODE=$(printf '%s\n' "$t" | sed -n 's/^Mode: *//p' | tail -1)
-  REC_VLINE=$(printf '%s\n' "$t" | sed -n 's/^Verdict: *//p' | tail -1)
-  [[ "$REC_MODE" =~ ^(full|quick)$ && "${REC_VLINE%% *}" =~ ^(ready|not-ready|pending)$ ]]
-}
+# shellcheck source=record-lib.sh
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/record-lib.sh"
 
 dirty=no; [[ -z "$(git status --porcelain)" ]] || dirty=yes
 record=none; mode=none; verdict=none; reason=""; at_head=no; round_start=none
@@ -55,9 +48,7 @@ while IFS= read -r c; do
   if read_record "$c"; then record=$c; break; fi
 done <<<"$candidates"
 if [[ "$record" != none ]]; then
-  mode=$REC_MODE
-  verdict=${REC_VLINE%% *}
-  reason=$(printf '%s' "$REC_VLINE" | sed -n 's/^[^ ]* *(\(.*\))$/\1/p')
+  mode=$REC_MODE; verdict=$REC_VERDICT; reason=$REC_REASON
   if [[ "$record" == "$HEAD_SHA" ]]; then
     at_head=yes
     cur=$HEAD_SHA

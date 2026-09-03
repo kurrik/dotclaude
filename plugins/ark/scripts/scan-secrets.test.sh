@@ -24,6 +24,7 @@ printf 'password: process.env.PW\nconst TEST_SECRET = "aaaaaaaaaaaaaaaaaaaaaaaaa
 printf 'DATABASE_URL=\n' > .env.template
 printf 'project = ""\n' > production.template.tfvars
 mkdir -p docs && printf '# Secrets\nsee infra/secrets.md\n' > docs/secrets.md
+printf -- '-----BEGIN CERTIFICATE-----\nMIIC\n-----END CERTIFICATE-----\n' > ca.pem
 git add -A && git commit -qm clean
 out=$(bash "$SCRIPT" main); ec=$?
 ck "exit code" "$ec" "0"

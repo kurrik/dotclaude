@@ -100,6 +100,7 @@ dotclaude/
 │       │   ├── resolve-base.sh      # fetch + print origin/<default branch>
 │       │   ├── polish-state.sh      # has this tip been polished, and what did polish say?
 │       │   ├── polish-record.sh     # write a polish run's verdict as commit trailers
+│       │   ├── record-lib.sh        # the one definition of a record, sourced by both
 │       │   ├── scan-secrets.sh      # every commit's paths, added lines, and message
 │       │   ├── push-branch.sh       # scan, then push — the only way a skill pushes
 │       │   ├── polish-state.test.sh

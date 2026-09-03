@@ -7,6 +7,11 @@
 #   bash push-branch.sh <base>                          # base from resolve-base.sh
 #   bash push-branch.sh <base> --override-scan "<why>"  # push despite hits
 #
+# Destination: the branch's configured upstream when it has one (so a local
+# `review-x` tracking `origin/pr-branch` updates the PR, not a new remote
+# branch named after the local one); otherwise a same-named branch on
+# origin, with upstream set.
+#
 # --override-scan is the human's decision, never the agent's: the skills
 # only pass it after showing the human the hits and being told to push. The
 # reason is printed with the hits so the transcript records who decided.
@@ -39,4 +44,11 @@ if [[ $ec -eq 1 ]]; then
 elif [[ $ec -ne 0 ]]; then
   echo "push-branch: scan failed (status $ec); nothing pushed" >&2; exit 2
 fi
-git push -u origin "$BRANCH" || { echo "push-branch: push failed" >&2; exit 2; }
+remote=$(git config --get "branch.$BRANCH.remote" || true)
+merge=$(git config --get "branch.$BRANCH.merge" || true)
+if [[ -n "$remote" && -n "$merge" ]]; then
+  echo "push-branch: pushing to configured upstream $remote/${merge#refs/heads/}"
+  git push "$remote" "HEAD:$merge" || { echo "push-branch: push failed" >&2; exit 2; }
+else
+  git push -u origin "$BRANCH" || { echo "push-branch: push failed" >&2; exit 2; }
+fi

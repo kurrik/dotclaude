@@ -5,17 +5,20 @@
 #   bash polish-record.sh --mode <full|quick> --verdict <ready|not-ready> \
 #        [--reason "<one line>"] [--body-file <path>]
 #
-# If HEAD already carries a Verdict: trailer (this run's own round commit,
-# written with `Verdict: pending`) and is not on any remote branch, the
-# trailer is rewritten in place with `git commit --amend` -- nothing shared
-# is rewritten, and the check is enforced here, not left to the caller.
-# Otherwise (the run committed nothing, or HEAD is a pushed record from an
-# earlier run) an empty commit is created so the verdict travels with the
+# If HEAD is this run's own round commit -- a complete record whose verdict
+# is still `pending` -- and is not on any remote branch, the trailer is
+# rewritten in place with `git commit --amend`: nothing shared is rewritten,
+# and both conditions are enforced here, not left to the caller. Anything
+# else at HEAD (the run committed nothing; an earlier run's finished record;
+# an ordinary commit that happens to end in some Verdict: line) is left
+# untouched and an empty commit is created so the verdict travels with the
 # branch: --body-file supplies its body (the parked findings, for a
 # not-ready verdict). Every polish run therefore ends with a record at HEAD.
 #
 # Exit 0 on success, 2 on usage error or git failure.
 set -uo pipefail
+# shellcheck source=record-lib.sh
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/record-lib.sh"
 MODE=""; VERDICT=""; REASON=""; BODY_FILE=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -32,11 +35,8 @@ case "$VERDICT" in ready|not-ready) ;; *) echo "polish-record: --verdict must be
 
 vline="Verdict: $VERDICT"; [[ -z "$REASON" ]] || vline="$vline ($REASON)"
 head_body=$(git log -1 --format=%B HEAD) || exit 2
-head_trailers=$(printf '%s\n' "$head_body" | git interpret-trailers --parse) || exit 2
 
-# Amend only a genuine round commit: Verdict: in the trailer block (a body
-# that mentions it in passing does not count) and not on any remote branch.
-if printf '%s\n' "$head_trailers" | grep -Eq '^Verdict: ' && [[ -z "$(git branch -r --contains HEAD)" ]]; then
+if read_record HEAD && [[ "$REC_VERDICT" == pending && -z "$(git branch -r --contains HEAD)" ]]; then
   # Let git place the trailers: it keeps them in a proper block after a
   # blank line (a block glued to the subject is not parsed as trailers).
   new=$(printf '%s\n' "$head_body" | git interpret-trailers --if-exists replace \
