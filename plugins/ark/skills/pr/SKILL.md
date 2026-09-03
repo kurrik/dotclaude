@@ -85,12 +85,19 @@ Do the following steps in order. If any step fails, stop and report the error cl
 
    The scan lives inside the push so it runs after every path that can
    commit — step 2, an accepted polish run, the inline review fallback —
-   without any step having to remember it. Exit 1 means it refused: the
-   hits are on stdout; do not work around it, show me the lines and ask.
-   If the commit holding a hit is already on the remote (`git branch -r
-   --contains <sha>` prints a branch), say so plainly — the secret needs
-   rotating, and rewriting history is my call. Exit 2 is the ordinary
-   "step failed" case from the top of this skill.
+   without any step having to remember it. It matches only high-confidence
+   shapes (private-key headers, provider token formats, credential-store
+   filenames), and a repo can exempt fixture paths in a committed
+   `.ark-scan-ignore`. Exit 1 means it refused: the hits are on stdout.
+   Never work around it with `git push`; show me the lines and ask. Two
+   answers are possible: it is real, in which case say whether the commit
+   is already on the remote (`git branch -r --contains <sha>`) because the
+   secret then needs rotating and rewriting history is my call; or I
+   confirm it is a false positive, in which case re-run with
+   `--override-scan "<my reason>"` — that flag is only ever passed on my
+   explicit say-so, and the reason is printed with the hits so the
+   transcript records who decided. Exit 2 is the ordinary "step failed"
+   case from the top of this skill.
 
 5. **Gather the diff.** List changed files with `git diff --name-status -M <base>...HEAD`, then read each file's diff with `git diff -M <base>...HEAD -- <file>`. For very large diffs, summarize from the first ~10k characters per file rather than reading every line. This read doubles as the last sanity check when no polish ran: anything that shouldn't ship — leftover debug output, a stray TODO from this branch, a file that doesn't belong to the change — gets fixed and committed now (amend nothing; add a commit), and the push in step 4 is repeated (through the script, so the new commit is scanned too). Secrets are not in this list because the push itself stops for them.
 

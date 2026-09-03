@@ -31,6 +31,14 @@ hdr "state: a plain 'polish:' subject is not a record"
 echo b > b && git add . && git commit -qm 'polish: something ordinary'
 ck "state" "$(kv state "$(bash "$D/polish-state.sh" origin/main)")" "unreviewed"
 
+hdr "state: 'Verdict: ready' mentioned in a body, no Mode -> not a record"
+echo b2 > b2 && git add . && git commit -qm $'docs: explain records\n\nA record ends with a line like\nVerdict: ready\nwhich polish writes.'
+ck "state" "$(kv state "$(bash "$D/polish-state.sh" origin/main)")" "unreviewed"
+
+hdr "state: both keys but not in the trailer block -> not a record"
+echo b3 > b3 && git add . && git commit -qm $'docs: more\n\nMode: full\nVerdict: ready\n\nBut this paragraph comes after, so those are not trailers.'
+ck "state" "$(kv state "$(bash "$D/polish-state.sh" origin/main)")" "unreviewed"
+
 hdr "record: round commit (pending) then amended to ready/quick -> unverified at head"
 echo c > c && git add . && git commit -qm $'polish: address round 1\n\n- fix\n\nReviewers: x\nMode: quick\nVerdict: pending'
 PEND=$(git rev-parse HEAD)
@@ -74,9 +82,14 @@ echo x > x
 ck "dirty" "$(kv dirty "$(bash "$D/polish-state.sh" origin/main)")" "yes"; rm x
 
 hdr "push-branch: refuses on a secret, pushes when clean"
-git checkout -qb leak && echo 'API_KEY = "abcdefghijklmnop"' > k && git add . && git commit -qm k
+git checkout -qb leak && printf 'T = "ghp_%s"\n' "$(printf 'a%.0s' $(seq 36))" > k && git add . && git commit -qm k
 bash "$D/push-branch.sh" origin/main >/dev/null; ck "refused" "$?" "1"
 ck "nothing pushed" "$(git ls-remote --heads origin leak | wc -l | tr -d ' ')" "0"
+bash "$D/push-branch.sh" origin/main --override-scan >/dev/null 2>&1; ck "override without reason -> 2" "$?" "2"
+out=$(bash "$D/push-branch.sh" origin/main --override-scan "fixture token, confirmed by human" 2>&1); ec=$?
+ck "override pushes" "$ec" "0"
+ck "override reason recorded" "$(grep -c 'override by human: fixture token' <<<"$out")" "1"
+ck "remote has leak branch" "$(git ls-remote --heads origin leak | wc -l | tr -d ' ')" "1"
 git checkout -q feat && echo h > h && git add . && git commit -qm h
 bash "$D/push-branch.sh" origin/main >/dev/null 2>&1; ck "pushed" "$?" "0"
 ck "remote has tip" "$(git ls-remote origin refs/heads/feat | cut -f1)" "$(git rev-parse HEAD)"

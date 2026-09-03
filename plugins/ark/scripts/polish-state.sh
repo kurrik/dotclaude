@@ -5,9 +5,11 @@
 #
 #   bash polish-state.sh <base> [<head>]     (head defaults to HEAD)
 #
-# The record is the newest commit in <base>..<head> carrying a `Verdict:`
-# trailer (written by polish-record.sh). A subject that merely starts with
-# "polish:" is not a record. Output:
+# The record is the newest commit in <base>..<head> whose git trailer block
+# (the final paragraph, as `git interpret-trailers --parse` reads it) carries
+# both `Mode: full|quick` and `Verdict: ready|not-ready|pending` -- the pair
+# polish-record.sh writes. A subject that merely starts with "polish:", or a
+# body that mentions "Verdict: ready" in passing, is not a record. Output:
 #
 #   dirty=yes|no                 working tree or index has changes
 #   record=<sha>|none            the record commit
@@ -35,22 +37,31 @@ BASE=${1:-}; HEAD_REF=${2:-HEAD}
 git rev-parse --verify -q "$BASE^{commit}" >/dev/null || { echo "polish-state: unknown base '$BASE'" >&2; exit 2; }
 HEAD_SHA=$(git rev-parse --verify -q "$HEAD_REF^{commit}") || { echo "polish-state: unknown head '$HEAD_REF'" >&2; exit 2; }
 
-has_verdict() { git log -1 --format=%B "$1" | grep -Eq '^Verdict: '; }
+# Parse the trailer block only; set REC_MODE / REC_VLINE; succeed iff the
+# commit is a complete, valid record.
+read_record() {
+  local t
+  t=$(git log -1 --format=%B "$1" | git interpret-trailers --parse) || return 1
+  REC_MODE=$(printf '%s\n' "$t" | sed -n 's/^Mode: *//p' | tail -1)
+  REC_VLINE=$(printf '%s\n' "$t" | sed -n 's/^Verdict: *//p' | tail -1)
+  [[ "$REC_MODE" =~ ^(full|quick)$ && "${REC_VLINE%% *}" =~ ^(ready|not-ready|pending)$ ]]
+}
 
 dirty=no; [[ -z "$(git status --porcelain)" ]] || dirty=yes
-record=$(git log --grep='^Verdict: ' -1 --format=%H "$BASE..$HEAD_REF") || exit 2
-record=${record:-none}
-mode=none; verdict=none; reason=""; at_head=no; round_start=none
+record=none; mode=none; verdict=none; reason=""; at_head=no; round_start=none
+candidates=$(git log --grep='^Verdict: ' --format=%H "$BASE..$HEAD_REF") || exit 2
+while IFS= read -r c; do
+  [[ -n "$c" ]] || continue
+  if read_record "$c"; then record=$c; break; fi
+done <<<"$candidates"
 if [[ "$record" != none ]]; then
-  body=$(git log -1 --format=%B "$record")
-  mode=$(printf '%s\n' "$body" | sed -n 's/^Mode: *//p' | tail -1); mode=${mode:-none}
-  vline=$(printf '%s\n' "$body" | sed -n 's/^Verdict: *//p' | tail -1)
-  verdict=${vline%% *}
-  reason=$(printf '%s' "$vline" | sed -n 's/^[^ ]* *(\(.*\))$/\1/p')
+  mode=$REC_MODE
+  verdict=${REC_VLINE%% *}
+  reason=$(printf '%s' "$REC_VLINE" | sed -n 's/^[^ ]* *(\(.*\))$/\1/p')
   if [[ "$record" == "$HEAD_SHA" ]]; then
     at_head=yes
     cur=$HEAD_SHA
-    while has_verdict "$cur"; do
+    while read_record "$cur"; do
       parent=$(git rev-parse -q --verify "$cur^" 2>/dev/null) || break
       # stop at the base: never walk past the branch range
       git merge-base --is-ancestor "$parent" "$BASE" && { round_start=$parent; break; }

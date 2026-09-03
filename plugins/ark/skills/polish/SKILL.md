@@ -52,8 +52,8 @@ or what a push checks:
 | `resolve-base.sh` | fetch, print `origin/<default branch>` | 2 on fetch failure |
 | `polish-state.sh <base>` | key=value state of the tip (`state`, `record`, `mode`, `verdict`, `reason`, `at_head`, `round_start`, `unreviewed_from`, `unreviewed_commits`, `dirty`) | 2 on git error |
 | `polish-record.sh --mode m --verdict v [--reason r] [--body-file f]` | write this run's verdict as the trailers at `HEAD` (amend the run's own unpushed round commit, else an empty record commit) | 2 on git error |
-| `scan-secrets.sh <base>` | every commit's paths, added lines, and message in `<base>..HEAD` | 1 hits, 2 error |
-| `push-branch.sh <base>` | `scan-secrets.sh`, then push with upstream — the only way a skill pushes | 1 refused, 2 error |
+| `scan-secrets.sh <base>` | every commit's paths, added lines, and message in `<base>..HEAD`, high-confidence shapes only; a committed `.ark-scan-ignore` exempts fixture paths | 1 hits, 2 error |
+| `push-branch.sh <base> [--override-scan "<why>"]` | `scan-secrets.sh`, then push with upstream — the only way a skill pushes; the override is passed only on the human's explicit say-so after seeing the hits | 1 refused, 2 error |
 
 ## Modes
 
@@ -167,7 +167,8 @@ Do these in order — each depends on the one before it:
 **Before any leg launches, gate the egress.** The external CLI leg sends
 the branch diff to another vendor's service, and a later hard stop cannot
 undo that disclosure. Run `scan-secrets.sh "$BASE"` (see **Scripts**); exit 1 is a hard stop
-for the whole run — show the hits, launch nothing, and ask the human. Exit
+for the whole run — show the hits, launch nothing, and ask the human; if
+they confirm a false positive, continue, and say so in the report. Exit
 2 is a scan error: stop as well rather than reviewing unscanned. Every
 push goes through `push-branch.sh`, which scans again, so a credential a
 polish fix introduces is caught at the next egress.

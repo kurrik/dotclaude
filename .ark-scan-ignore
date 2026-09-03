@@ -1,0 +1,2 @@
+# Paths scan-secrets.sh skips: the scanner and its fixtures match their own patterns.
+plugins/ark/scripts/*

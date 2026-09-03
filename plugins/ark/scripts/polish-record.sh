@@ -32,10 +32,15 @@ case "$VERDICT" in ready|not-ready) ;; *) echo "polish-record: --verdict must be
 
 vline="Verdict: $VERDICT"; [[ -z "$REASON" ]] || vline="$vline ($REASON)"
 head_body=$(git log -1 --format=%B HEAD) || exit 2
+head_trailers=$(printf '%s\n' "$head_body" | git interpret-trailers --parse) || exit 2
 
-if printf '%s\n' "$head_body" | grep -Eq '^Verdict: ' && [[ -z "$(git branch -r --contains HEAD)" ]]; then
-  new=$(printf '%s\n' "$head_body" | grep -Ev '^(Verdict|Mode): ')
-  new=$(printf '%s\nMode: %s\n%s\n' "$new" "$MODE" "$vline")
+# Amend only a genuine round commit: Verdict: in the trailer block (a body
+# that mentions it in passing does not count) and not on any remote branch.
+if printf '%s\n' "$head_trailers" | grep -Eq '^Verdict: ' && [[ -z "$(git branch -r --contains HEAD)" ]]; then
+  # Let git place the trailers: it keeps them in a proper block after a
+  # blank line (a block glued to the subject is not parsed as trailers).
+  new=$(printf '%s\n' "$head_body" | git interpret-trailers --if-exists replace \
+        --trailer "Mode: $MODE" --trailer "$vline") || exit 2
   git commit -q --amend -m "$new" || exit 2
   echo "amended $(git rev-parse --short HEAD): $vline"
 else
