@@ -1,7 +1,7 @@
 ---
 name: polish
 argument-hint: "[--quick]"
-description: Frontload the PR review cycle before pushing a branch. Runs up to three reviewers in parallel subagents (the current Claude, Codex, or Grok host's native reviewer, a preferred cross-agent CLI review if installed, and a check against a layered review-principles corpus — general principles bundled with this skill, plus machine-level ~/.claude/review-principles and the repo's .claude/review-principles when present), reads the branch as a whole for structural fixes before patching individual findings, triages and fixes autonomously without expanding scope, commits each round with the feedback and justification in the message, and stops after at most two rounds; --quick runs a single round with the native and corpus legs only. Costly — run it only when the human invokes /ark:polish, or accepts the one-time offer ark:pr makes for a large or sensitive unreviewed diff, or the one ark:review makes when its fixes reshaped the PR. Never run it unprompted.
+description: Frontload the PR review cycle before pushing a branch. Runs up to three reviewers in parallel subagents (the current Claude, Codex, or Grok host's native reviewer, a preferred cross-agent CLI review if installed, and a check against a layered review-principles corpus — general principles bundled with this skill, plus machine-level ~/.claude/review-principles and the repo's .claude/review-principles when present), reads the branch as a whole for structural fixes before patching individual findings, triages and fixes autonomously without expanding scope, commits each round with the feedback and justification in the message, and stops after at most two rounds; --quick runs a single round with the native and corpus legs only. Costly — run it only when the human invokes /ark:polish, or accepts the one-time offer ark:pr makes for a large or sensitive unreviewed diff, or the one ark:review or ark:review-auto makes when its fixes reshaped the PR. Never run it unprompted.
 ---
 
 # ark:polish — frontload the review cycle
@@ -17,8 +17,8 @@ Polish is **opt-in per branch**, not a step on every PR:
 
 - The human invoked `/ark:polish` (or `$ark:polish`), or
 - `ark:pr` sized the unreviewed diff (large, or in a sensitive area) or
-  `ark:review` found its fixes had reshaped the PR, offered a single polish
-  pass, and the human accepted.
+  `ark:review` / `ark:review-auto` found its fixes had reshaped the PR,
+  offered a single polish pass, and the human accepted.
 
 Never start polish on your own judgment, and never repeat work already
 done on the same branch tip. What "already done" means depends on the mode

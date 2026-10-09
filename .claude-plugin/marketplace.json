@@ -9,7 +9,7 @@
   "plugins": [
     {
       "name": "ark",
-      "description": "Git & GitHub workflow skills: open a PR from the current branch (ark:pr), address PR review comments (ark:review), and reset a git worktree to the base branch (ark:reset-worktree).",
+      "description": "Git & GitHub workflow skills: open a PR from the current branch (ark:pr), address PR review comments with or without an approval stop (ark:review, ark:review-auto), and reset a git worktree to the base branch (ark:reset-worktree).",
       "source": "./plugins/ark"
     }
   ]
